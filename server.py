@@ -6,7 +6,7 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v6.0.0"
+APP_VERSION = "v6.1.0"
 
 app = FastAPI(title="ПУТЁВКА v6.0.0 — Форма № 3 (ОКУД 0345001)")
 
@@ -37,6 +37,8 @@ def save_valid_state(payload: dict):
         payload["dwg_previews"] = existing["dwg_previews"]
     if "adminSetupCompleted" not in payload and "adminSetupCompleted" in existing:
         payload["adminSetupCompleted"] = existing["adminSetupCompleted"]
+    if "headerTemplates" not in payload and "headerTemplates" in existing:
+        payload["headerTemplates"] = existing["headerTemplates"]
     payload["appVersion"] = APP_VERSION
     with open(DB_FILE, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
