@@ -12,17 +12,17 @@ if [ ! -d "$TARGET_DIR" ]; then
 fi
 
 echo "=========================================="
-echo "  Установка ПУТЁВКА v6.2.0"
+echo "  Установка ПУТЁВКА v6.3.0"
 echo "  Целевая папка: $TARGET_DIR"
 echo "=========================================="
 
 mkdir -p "$TARGET_DIR/data" "$TARGET_DIR/static" "$TARGET_DIR/templates_xls"
 CURRENT_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Копируем все файлы сборки v6.2.0
+# Копируем все файлы сборки v6.3.0
 cp -rf "$CURRENT_SCRIPT_DIR"/* "$TARGET_DIR/"
 
-# Обновляем БД до структуры v6.2.0 (схема А4 на весь лист и первичная настройка админа)
+# Обновляем БД до структуры v6.3.0 (схема А4 на весь лист и первичная настройка админа)
 cp -f "$TARGET_DIR/data/app_data.json" "$TARGET_DIR/data/putevka_db.json"
 chmod -R 777 "$TARGET_DIR/data" 2>/dev/null || true
 
@@ -44,7 +44,7 @@ fi
 sleep 2
 
 if pgrep -f "server.py" >/dev/null; then
-  echo ">>> УСПЕШНО! Сервер ПУТЁВКА v6.2.0 запущен и слушает порт 8080."
+  echo ">>> УСПЕШНО! Сервер ПУТЁВКА v6.3.0 запущен и слушает порт 8080."
   echo ">>> PID процесса: $(pgrep -f "server.py" | head -n 1)"
   echo ">>> Версия: $(cat "$TARGET_DIR/version.txt")"
   ls -lh "$TARGET_DIR/data/putevka_db.json"

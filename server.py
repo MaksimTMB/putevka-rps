@@ -6,9 +6,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v6.2.0"
+APP_VERSION = "v6.3.0"
 
-app = FastAPI(title="ПУТЁВКА v6.0.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v6.3.0 — Форма № 3 (ОКУД 0345001)")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(BASE_DIR, "data", "putevka_db.json")
