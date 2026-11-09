@@ -1,4 +1,4 @@
-import os, io, re, csv, base64, json, datetime, zipfile, urllib.parse
+import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -6,13 +6,26 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v6.5.0"
+APP_VERSION = "v6.6.0"
 
-app = FastAPI(title="ПУТЁВКА v6.5.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v6.6.0 — Форма № 3 (ОКУД 0345001)")
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(BASE_DIR, "data", "putevka_db.json")
-INIT_FILE = os.path.join(BASE_DIR, "data", "app_data.json")
+import sys
+if getattr(sys, "frozen", False):
+    BUNDLE_DIR = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+    BASE_DIR = os.path.dirname(sys.executable)
+else:
+    BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
+    BASE_DIR = BUNDLE_DIR
+
+DATA_DIR = os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_FILE = os.path.join(DATA_DIR, "putevka_db.json")
+INIT_FILE = os.path.join(DATA_DIR, "app_data.json")
+if not os.path.exists(INIT_FILE) and os.path.exists(os.path.join(BUNDLE_DIR, "data", "app_data.json")):
+    shutil.copy2(os.path.join(BUNDLE_DIR, "data", "app_data.json"), INIT_FILE)
+if not os.path.exists(DB_FILE) and os.path.exists(INIT_FILE):
+    shutil.copy2(INIT_FILE, DB_FILE)
 
 
 def load_valid_state():
@@ -460,7 +473,7 @@ def generate_xlsx_bytes(prof: dict, days_list: list, schema: dict) -> bytes:
 @app.get("/")
 def index():
     return FileResponse(
-        os.path.join(BASE_DIR, "static", "index.html"),
+        os.path.join(BUNDLE_DIR if not os.path.exists(os.path.join(BASE_DIR, "static", "index.html")) else BASE_DIR, "static", "index.html"),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
     )
 
@@ -983,7 +996,7 @@ def export_xlsx(payload: dict = Body(...)):
     )
 
 
-app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
+app.mount("/static", StaticFiles(directory=os.path.join(BUNDLE_DIR if not os.path.exists(os.path.join(BASE_DIR, "static")) else BASE_DIR, "static")), name="static")
 
 if __name__ == "__main__":
     import uvicorn
