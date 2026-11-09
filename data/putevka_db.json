@@ -2138,7 +2138,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "manualStartTank": true
         },
         "oct_2026": {
           "title": "Октябрь 2026",
@@ -3529,7 +3530,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "manualStartTank": true
         }
       },
       "exportHistory": [
@@ -4874,7 +4876,8 @@
                 }
               ]
             }
-          ]
+          ],
+          "manualStartTank": true
         }
       },
       "exportHistory": [
@@ -9850,6 +9853,56 @@
       "note": "Главный бухгалтер"
     }
   ],
-  "appVersion": "v6.0.0",
-  "adminSetupCompleted": false
+  "appVersion": "v6.1.0",
+  "adminSetupCompleted": false,
+  "headerTemplates": [
+    {
+      "id": "tpl_osst",
+      "name": "ООО «Объединенные системы связи Тамбов» (База: б-р Строителей, 6)",
+      "orgFull": "Общество с ограниченной ответственностью \"Объединенные системы связи Тамбов\", 392000, г. Тамбов, бульвар Строителей, д.6, оф.13 тел. 8 (4752)63-65-00 ОГРН 1236800001448",
+      "orgShort": "ООО \"Объединенные системы связи Тамбов\"",
+      "okpo": "80170696",
+      "okud": "0345001",
+      "waybillSeries": "",
+      "waybillNumberPrefix": "",
+      "transportInfo": "перевозка для собственных нужд",
+      "baseAddress": "г. Тамбов, бульвар Строителей, 6",
+      "depTimeDefault": "9-00",
+      "arrTimeDefault": "18-00",
+      "dispatcher": "Ребрушкина О.А.",
+      "accountantRole": "гл.бухгалтер",
+      "accountant": "Королев С.И.",
+      "mechanic": "Кошелев Е.А.",
+      "medOrgPre": "",
+      "licenseClass": "В",
+      "defaultFuelGrade": "92",
+      "normSummer": 16.8,
+      "normAutumn": 17.8,
+      "normWinter": 18.7
+    },
+    {
+      "id": "tpl_atlas",
+      "name": "ООО «Атлас Телеком» (База: ул. Астраханская, 37а)",
+      "orgFull": "Общество с ограниченной ответственностью \"Атлас Телеком\", 105037, г. Москва, ул. Прядильная 2-я, д. 10, тел. 8 (4752)40-00-46 ОГРН 1106829001344",
+      "orgShort": "ООО \"Атлас Телеком\"",
+      "okpo": "63281017",
+      "okud": "0345001",
+      "waybillSeries": "",
+      "waybillNumberPrefix": "",
+      "transportInfo": "перевозка для собственных нужд",
+      "baseAddress": "г. Тамбов, ул. Астраханская, 37а",
+      "depTimeDefault": "9-00",
+      "arrTimeDefault": "18-00",
+      "dispatcher": "Ребрушкина О.А.",
+      "accountantRole": "гл.бухгалтер",
+      "accountant": "Дубенская И.А.",
+      "mechanic": "Канашев С.С.",
+      "medOrgPre": "",
+      "licenseClass": "В",
+      "defaultFuelGrade": "95",
+      "normSummer": 17.2,
+      "normAutumn": 18.0,
+      "normWinter": 18.66
+    }
+  ]
 }
