@@ -1,0 +1,15 @@
+[Unit]
+Description=ASU Putevka v6.5.0 Waybill Management Server (Form 0345001)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/asu_waybills
+ExecStart=/opt/asu_waybills/venv/bin/python /opt/asu_waybills/server.py
+Restart=always
+RestartSec=3
+StandardOutput=append:/opt/asu_waybills/server.log
+StandardError=append:/opt/asu_waybills/server.log
+
+[Install]
+WantedBy=multi-user.target
