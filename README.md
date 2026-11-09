@@ -92,7 +92,7 @@ unzip putevka_git_repository_v5_0_to_v6_5.zip -d putevka-rps
 cd putevka-rps
 
 # 2. Привяжите ваш удаленный репозиторий (GitHub / GitLab / Gitea)
-git remote add origin https://github.com/<ВАШ_АККАУНТ>/putevka-rps.git
+git remote add origin https://github.com/MaksimTMB/putevka-rps.git
 
 # 3. Отправьте ветку main и все теги версий (v5.0.0 .. v6.5.0)
 git branch -M main
