@@ -6,7 +6,7 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v6.1.0"
+APP_VERSION = "v6.2.0"
 
 app = FastAPI(title="ПУТЁВКА v6.0.0 — Форма № 3 (ОКУД 0345001)")
 
