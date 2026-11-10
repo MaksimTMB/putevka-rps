@@ -4,7 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AppVersion = "v6.6.0"
+$AppVersion = "v6.7.0"
 $ProjectRoot = if (Test-Path "$PSScriptRoot\server.py") { $PSScriptRoot } else { Split-Path -Parent $PSScriptRoot }
 Set-Location $ProjectRoot
 
