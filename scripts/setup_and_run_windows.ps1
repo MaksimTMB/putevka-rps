@@ -1,4 +1,4 @@
-param(
+﻿param(
     [switch]$KeepDb = $false,
     [int]$Port = 8080
 )
@@ -9,7 +9,7 @@ $ProjectRoot = if (Test-Path "$PSScriptRoot\server.py") { $PSScriptRoot } else {
 Set-Location $ProjectRoot
 
 Write-Host "==================================================================" -ForegroundColor Cyan
-Write-Host "  АСУ «ПУТЁВКА» $AppVersion — Полная проверка окружения и запуск (Windows)" -ForegroundColor Cyan
+Write-Host "  АСУ "ПУТЁВКА" $AppVersion - Полная проверка окружения и запуск (Windows)" -ForegroundColor Cyan
 Write-Host "  Рабочая директория: $ProjectRoot" -ForegroundColor Cyan
 Write-Host "==================================================================" -ForegroundColor Cyan
 
@@ -95,7 +95,7 @@ if (-not $HealthOk) {
 }
 
 Write-Host "==================================================================" -ForegroundColor Green
-Write-Host "  >>> УСПЕШНО! АСУ «ПУТЁВКА» $AppVersion запущена (PID: $($Proc.Id))" -ForegroundColor Green
+Write-Host "  >>> УСПЕШНО! АСУ "ПУТЁВКА" $AppVersion запущена (PID: $($Proc.Id))" -ForegroundColor Green
 Write-Host "  Адрес в браузере: http://localhost:$Port" -ForegroundColor Cyan
 Write-Host "==================================================================" -ForegroundColor Green
 Start-Process "http://localhost:$Port"

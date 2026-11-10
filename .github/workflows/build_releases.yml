@@ -32,10 +32,17 @@ jobs:
             pyinstaller --noconfirm --onefile --windowed --name "Putevka_Windows_v6_7" --icon "putevka.ico" --add-data "static;static" --add-data "data;data" --add-data "templates_xls;templates_xls" desktop_app.py
           }
 
-      - name: Upload Release Assets to GitHub Releases
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Publish GitHub Release v6.7.0 with EXE and ZIP archives
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v6.7.0
+          name: "АСУ ПУТЁВКА v6.7.0 (Windows Desktop App EXE + Linux Server + Все архивы)"
+          body: |
+            Автоматическая сборка **АСУ ПУТЁВКА v6.7.0**:
+            - Чистая начальная БД без предустановленных шаблонов, профилей и записей (сохранена первичная регистрация Администратора).
+            - Исправлено расположение кнопки «Применить к полям» в блоке шаблонов заголовка.
+            - Нативное десктоп-приложение для Windows (`Putevka_Windows_v6_7.exe` и `putevka_windows_desktop_app_v6_7.zip`).
+            - Серверная сборка для Linux/Docker (`putevka_server_v6_7.zip`).
           files: |
             dist/Putevka_Windows_v6_7.exe
             releases/*.zip

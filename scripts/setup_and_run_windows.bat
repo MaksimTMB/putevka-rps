@@ -1,5 +1,5 @@
 @echo off
-chcp 65001 >nul
-setlocal
-cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup_and_run_windows.ps1" %*
+pushd "%~dp0"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "setup_and_run_windows.ps1" %*
+popd
+pause
