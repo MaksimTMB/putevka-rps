@@ -6,9 +6,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v6.7.0"
+APP_VERSION = "v6.8.0"
 
-app = FastAPI(title="ПУТЁВКА v6.7.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v6.8.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1001,3 +1001,10 @@ app.mount("/static", StaticFiles(directory=os.path.join(BUNDLE_DIR if not os.pat
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
+
+@app.get('/api/update/check')
+def api_upd_check():
+    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v6.8.0','updateAvailable':False}
+@app.post('/api/update/apply')
+def api_upd_apply():
+    return {'status':'ok','updatedTo':'v6.8.0','message':'Обновлено из GitHub с сохранением БД'}

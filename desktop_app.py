@@ -8,7 +8,7 @@ import urllib.request
 import uvicorn
 import server
 
-APP_TITLE = "АСУ «ПУТЁВКА» v6.7.0 — Форма № 3 (ОКУД 0345001)"
+APP_TITLE = "АСУ «ПУТЁВКА» v6.8.0 — Форма № 3 (ОКУД 0345001)"
 
 
 def find_free_port(preferred=18080):
