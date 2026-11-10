@@ -6,9 +6,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v6.6.0"
+APP_VERSION = "v6.7.0"
 
-app = FastAPI(title="ПУТЁВКА v6.6.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v6.7.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -34,7 +34,7 @@ def load_valid_state():
             try:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                if isinstance(data, dict) and data.get("profiles"):
+                if isinstance(data, dict) and "profiles" in data:
                     return data
             except Exception:
                 pass
