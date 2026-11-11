@@ -9,9 +9,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v6.9.0"
+APP_VERSION = "v7.0.0"
 
-app = FastAPI(title="ПУТЁВКА v6.9.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.0.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -114,7 +114,7 @@ def get_back_overrides(prof: dict, day_obj: dict) -> dict:
     ov = {
         "1,0": f"Оборотная сторона путевого листа легкового автомобиля № {wb_num} от {day_obj.get('date_ru', '')}",
         "24,7": day_obj.get("km", 0),
-        "25,7": day_obj.get("city_km", 0),
+        "25,7": day_obj.get("km", 0),
         "29,5": prof.get("accountantRole") or "гл.бухгалтер",
         "29,17": prof.get("accountant") or "",
     }
@@ -395,7 +395,7 @@ def populate_xlsx_sheet(ws, s_obj, styles, overrides, is_back=False):
             if is_back and r == 24 and c == 7:
                 cell.value = "=SUM(X7:Z19)"
             elif is_back and r == 25 and c == 7:
-                cell.value = "=X7"
+                cell.value = "=SUM(X7:Z19)"
             elif val != "" and val is not None:
                 cell.value = val
 
@@ -1007,7 +1007,7 @@ if __name__ == "__main__":
 
 @app.get('/api/update/check')
 def api_upd_check():
-    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v6.9.0','updateAvailable':False}
+    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.0','updateAvailable':False}
 @app.post('/api/update/apply')
 def api_upd_apply():
-    return {'status':'ok','updatedTo':'v6.9.0','message':'Обновлено из GitHub с сохранением БД'}
+    return {'status':'ok','updatedTo':'v7.0.0','message':'Обновлено из GitHub с сохранением БД'}
