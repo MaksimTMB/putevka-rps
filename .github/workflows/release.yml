@@ -29,6 +29,7 @@ jobs:
           pip install -r requirements.txt pyinstaller pillow
 
       - name: Update version and apply v7.0.0 rules
+        shell: bash
         run: |
           python -c "import os, json; open('version.txt','w',encoding='utf-8').write('v7.0.0\n')"
           python -c "p='server.py'; s=open(p,'r',encoding='utf-8').read().replace('v6.9.0','v7.0.0').replace('v6.8.0','v7.0.0').replace('v6.7.0','v7.0.0').replace('\"25,7\": day_obj.get(\"city_km\", 0),','\"25,7\": day_obj.get(\"km\", 0),').replace('cell.value = \"=X7\"','cell.value = \"=SUM(X7:Z19)\"'); open(p,'w',encoding='utf-8').write(s)"
