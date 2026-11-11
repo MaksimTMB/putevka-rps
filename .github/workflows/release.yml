@@ -1,4 +1,4 @@
-name: Build and Release v6.9.0
+name: Build and Release v7.0.0
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release-v6-9:
+  release-v7-0:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: windows-latest
     steps:
@@ -28,58 +28,112 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller pillow
 
-      - name: Update version to v6.9.0
+      - name: Apply v7.0.0 Fuel Logic, Header Fuel Block & DB Migration
         shell: python
         run: |
-          import sys, os, json
-          sys.path.insert(0, ".")
+          import os, json, re
+
           with open("version.txt", "w", encoding="utf-8", newline="\n") as f:
-              f.write("v6.9.0\n")
-          for fn in ("server.py", "desktop_app.py", "static/index.html"):
-              if os.path.exists(fn):
-                  with open(fn, "r", encoding="utf-8") as f:
-                      txt = f.read()
-                  txt = txt.replace("v6.8.0", "v6.9.0").replace("v6.7.0", "v6.9.0")
-                  with open(fn, "w", encoding="utf-8", newline="\n") as f:
-                      f.write(txt)
-          for db in ("data/app_data.json", "data/putevka_db.json"):
-              if os.path.exists(db):
-                  with open(db, "r", encoding="utf-8") as f:
-                      d = json.load(f)
-                  d["appVersion"] = "v6.9.0"
-                  d.setdefault("savedFolders", [])
-                  d.setdefault("savedDocuments", [])
-                  with open(db, "w", encoding="utf-8", newline="\n") as f:
-                      json.dump(d, f, ensure_ascii=False, indent=2)
+              f.write("v7.0.0\n")
+
+          # 1. Upgrade server.py to v7.0.0 (persistent %LocalAppData%\PutevkaApp\data + Header Fuel Block + 100% City Mode)
+          with open("server.py", "r", encoding="utf-8") as f:
+              srv = f.read()
+          srv = srv.replace("v6.9.0", "v7.0.0").replace("v6.8.0", "v7.0.0").replace("v6.7.0", "v7.0.0")
+          srv = srv.replace(
+              'DATA_DIR = os.path.join(BASE_DIR, "data")',
+              'DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or BASE_DIR, "PutevkaApp", "data") if os.name == "nt" else os.path.join(BASE_DIR, "data")'
+          )
+          srv = srv.replace('"25,7": day_obj.get("city_km", 0),', '"25,7": day_obj.get("km", 0),')
+          srv = srv.replace('cell.value = "=X7"', 'cell.value = "=SUM(X7:Z19)"')
+          old_f = '"48,10": prof.get("arrTimeDefault") or "18-00",'
+          new_f = (
+              '"47,24": f"{float(day_obj.get(\'refueled\') or 0):.2f}" if float(day_obj.get(\'refueled\') or 0) > 0 else "",\n'
+              '        "48,10": prof.get("arrTimeDefault") or "18-00",\n'
+              '        "49,18": str(day_obj.get("receipt_num") or day_obj.get("waybill_num") or "1") if float(day_obj.get("refueled") or 0) > 0 else "",\n'
+              '        "50,24": f"{float(day_obj.get(\'start_tank\') or 0):.2f}" if day_obj.get("start_tank") is not None else "",\n'
+              '        "52,24": f"{float(day_obj.get(\'end_tank\') or 0):.2f}" if day_obj.get("end_tank") is not None else "",\n'
+              '        "54,24": f"{float(day_obj.get(\'burned\') or 0):.2f}" if day_obj.get("burned") is not None else "",\n'
+              '        "55,24": f"{float(day_obj.get(\'burned\') or 0):.2f}" if day_obj.get("burned") is not None else "",'
+          )
+          if '"54,24":' not in srv and old_f in srv:
+              srv = srv.replace(old_f, new_f, 1)
+          with open("server.py", "w", encoding="utf-8", newline="\n") as f:
+              f.write(srv)
+
+          # 2. Upgrade desktop_app.py to v7.0.0
+          if os.path.exists("desktop_app.py"):
+              with open("desktop_app.py", "r", encoding="utf-8") as f:
+                  dp = f.read()
+              dp = dp.replace("v6.9.0", "v7.0.0").replace("v6.8.0", "v7.0.0")
+              with open("desktop_app.py", "w", encoding="utf-8", newline="\n") as f:
+                  f.write(dp)
+
+          # 3. Upgrade static/index.html to v7.0.0 (2 seasons Apr/Nov, 100% city_km=km, Header Fuel Block, DB preservation from localStorage)
+          if os.path.exists("static/index.html"):
+              with open("static/index.html", "r", encoding="utf-8") as f:
+                  h = f.read()
+              h = h.replace("v6.9.0", "v7.0.0").replace("v6.8.0", "v7.0.0").replace("v6.7.0", "v7.0.0")
+              h = h.replace(
+                  "const isWinter = (month === 12 || month === 1 || month === 2);\n      const isSummer = (month >= 5 && month <= 8);\n      const defaultNorm = isWinter ? (prof.normWinter || 18.7) : (isSummer ? (prof.normSummer || 16.8) : (prof.normAutumn || 17.8));",
+                  "const isSummer = (month >= 4 && month <= 10);\n      const defaultNorm = isSummer ? (prof.normSummer || 16.8) : (prof.normWinter || 18.7);"
+              )
+              h = h.replace(
+                  "d.city_km = d.legs.length > 0 ? Math.max(0, parseInt(d.legs[0].km, 10) || 0) : 0;",
+                  "d.city_km = d.km;"
+              )
+              h = h.replace(
+                  "d.city_km = editedDay.legs.length > 0 ? Math.max(1, parseInt(editedDay.legs[0].km, 10) || 1) : 0;",
+                  "d.city_km = editedDay.km;"
+              )
+              h = h.replace("'25,7': dayObj ? dayObj.city_km : 0,", "'25,7': dayObj ? dayObj.km : 0,")
+              old_hf = "'48,10': prof.arrTimeDefault || '18-00',"
+              new_hf = (
+                  "'47,24': (dayObj && Number(dayObj.refueled) > 0) ? Number(dayObj.refueled).toFixed(2) : '',\n"
+                  "        '48,10': prof.arrTimeDefault || '18-00',\n"
+                  "        '49,18': (dayObj && Number(dayObj.refueled) > 0) ? String(dayObj.receipt_num || dayObj.waybill_num || '1') : '',\n"
+                  "        '50,24': (dayObj && dayObj.start_tank !== undefined) ? Number(dayObj.start_tank).toFixed(2) : '',\n"
+                  "        '52,24': (dayObj && dayObj.end_tank !== undefined) ? Number(dayObj.end_tank).toFixed(2) : '',\n"
+                  "        '54,24': (dayObj && dayObj.burned !== undefined) ? Number(dayObj.burned).toFixed(2) : '',\n"
+                  "        '55,24': (dayObj && dayObj.burned !== undefined) ? Number(dayObj.burned).toFixed(2) : '',"
+              )
+              if "'54,24':" not in h and old_hf in h:
+                  h = h.replace(old_hf, new_hf, 1)
+              # Ensure localStorage DB is never overwritten by an empty server DB after an update
+              h = h.replace(
+                  "if (data && Array.isArray(data.profiles)) {\n            loaded = data;\n            loadedFromServer = true;\n          }",
+                  "if (data && Array.isArray(data.profiles) && (data.profiles.length > 0 || (data.users && data.users.length > 0))) {\n            loaded = data;\n            loadedFromServer = true;\n          }"
+              )
+              with open("static/index.html", "w", encoding="utf-8", newline="\n") as f:
+                  f.write(h)
+
           import server
-          assert server.APP_VERSION == "v6.9.0"
-          print("Verified version:", server.APP_VERSION)
+          assert server.APP_VERSION == "v7.0.0"
+          print("Verified v7.0.0 upgrade!")
 
       - name: Build standalone Putevka.exe
         run: |
           pyinstaller --noconfirm --onefile --windowed --name "Putevka" --icon "putevka.ico" --hidden-import=uvicorn --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.auto --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.auto --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on --hidden-import=fastapi --hidden-import=openpyxl --add-data "static;static" --add-data "data;data" --add-data "templates_xls;templates_xls" desktop_app.py
 
-      - name: Package and Commit Release v6.9.0
+      - name: Package and Commit Release v7.0.0
         run: |
           New-Item -ItemType Directory -Path "releases" -Force | Out-Null
           Copy-Item "dist\\Putevka.exe" "releases\\Putevka.exe" -Force
-          Copy-Item "dist\\Putevka.exe" "releases\\Putevka_Windows_v6_9.exe" -Force
-          Compress-Archive -Path "releases\\Putevka.exe", "update.ps1", "version.txt" -DestinationPath "releases\\putevka_windows_desktop_app_v6_9.zip" -Force
-          Compress-Archive -Path "server.py", "desktop_app.py", "requirements.txt", "setup_and_run.sh", "update.sh", "version.txt", "static", "data", "templates_xls" -DestinationPath "releases\\putevka_server_v6_9.zip" -Force
+          Copy-Item "dist\\Putevka.exe" "releases\\Putevka_Windows_v7_0.exe" -Force
+          Compress-Archive -Path "releases\\Putevka.exe", "update.ps1", "version.txt" -DestinationPath "releases\\putevka_windows_desktop_app_v7_0.zip" -Force
+          Compress-Archive -Path "server.py", "desktop_app.py", "requirements.txt", "setup_and_run.sh", "update.sh", "version.txt", "static", "data", "templates_xls" -DestinationPath "releases\\putevka_server_v7_0.zip" -Force
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add version.txt server.py desktop_app.py static/ data/ releases/
-          git diff --staged --quiet || git commit -m "chore(release): publish v6.9.0 packages [skip ci]"
+          git add version.txt server.py desktop_app.py static/ releases/
+          git diff --staged --quiet || git commit -m "chore(release): publish v7.0.0 packages [skip ci]"
           git push origin HEAD:main
 
-      - name: Publish GitHub Release v6.9.0 (Latest)
+      - name: Publish GitHub Release v7.0.0 (Latest)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v6.9.0
-          name: "АСУ ПУТЁВКА v6.9.0 — Папка сохранённых ПЛ + Выбор изменений (Diff + Чекбоксы)"
+          tag_name: v7.0.0
+          name: "АСУ ПУТЁВКА v7.0.0 — 2 сезона (Лето/Зима), 100% Город, Движение горючего в шапке, Выходные АЗС и Миграция БД"
           make_latest: true
           files: |
             releases/Putevka.exe
-            releases/Putevka_Windows_v6_9.exe
-            releases/putevka_windows_desktop_app_v6_9.zip
-            releases/putevka_server_v6_9.zip
+            releases/Putevka_Windows_v7_0.exe
