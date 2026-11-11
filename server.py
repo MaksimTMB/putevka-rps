@@ -1,3 +1,6 @@
+import os, sys
+if sys.stdout is None: sys.stdout = open(os.devnull, 'w', encoding='utf-8')
+if sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')
 import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
