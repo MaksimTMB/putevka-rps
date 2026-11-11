@@ -31,7 +31,8 @@ jobs:
       - name: Update version to v6.9.0
         shell: python
         run: |
-          import os, json
+          import sys, os, json
+          sys.path.insert(0, ".")
           with open("version.txt", "w", encoding="utf-8", newline="\n") as f:
               f.write("v6.9.0\n")
           for fn in ("server.py", "desktop_app.py", "static/index.html"):
