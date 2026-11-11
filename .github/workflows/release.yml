@@ -28,88 +28,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller pillow
 
-      - name: Apply v7.0.0 Fuel Logic, Header Fuel Block & DB Migration
-        shell: python
+      - name: Update version and apply v7.0.0 rules
         run: |
-          import os, json, re
-
-          with open("version.txt", "w", encoding="utf-8", newline="\n") as f:
-              f.write("v7.0.0\n")
-
-          # 1. Upgrade server.py to v7.0.0 (persistent %LocalAppData%\PutevkaApp\data + Header Fuel Block + 100% City Mode)
-          with open("server.py", "r", encoding="utf-8") as f:
-              srv = f.read()
-          srv = srv.replace("v6.9.0", "v7.0.0").replace("v6.8.0", "v7.0.0").replace("v6.7.0", "v7.0.0")
-          srv = srv.replace(
-              'DATA_DIR = os.path.join(BASE_DIR, "data")',
-              'DATA_DIR = os.path.join(os.environ.get("LOCALAPPDATA") or BASE_DIR, "PutevkaApp", "data") if os.name == "nt" else os.path.join(BASE_DIR, "data")'
-          )
-          srv = srv.replace('"25,7": day_obj.get("city_km", 0),', '"25,7": day_obj.get("km", 0),')
-          srv = srv.replace('cell.value = "=X7"', 'cell.value = "=SUM(X7:Z19)"')
-          old_f = '"48,10": prof.get("arrTimeDefault") or "18-00",'
-          new_f = (
-              '"47,24": f"{float(day_obj.get(\'refueled\') or 0):.2f}" if float(day_obj.get(\'refueled\') or 0) > 0 else "",\n'
-              '        "48,10": prof.get("arrTimeDefault") or "18-00",\n'
-              '        "49,18": str(day_obj.get("receipt_num") or day_obj.get("waybill_num") or "1") if float(day_obj.get("refueled") or 0) > 0 else "",\n'
-              '        "50,24": f"{float(day_obj.get(\'start_tank\') or 0):.2f}" if day_obj.get("start_tank") is not None else "",\n'
-              '        "52,24": f"{float(day_obj.get(\'end_tank\') or 0):.2f}" if day_obj.get("end_tank") is not None else "",\n'
-              '        "54,24": f"{float(day_obj.get(\'burned\') or 0):.2f}" if day_obj.get("burned") is not None else "",\n'
-              '        "55,24": f"{float(day_obj.get(\'burned\') or 0):.2f}" if day_obj.get("burned") is not None else "",'
-          )
-          if '"54,24":' not in srv and old_f in srv:
-              srv = srv.replace(old_f, new_f, 1)
-          with open("server.py", "w", encoding="utf-8", newline="\n") as f:
-              f.write(srv)
-
-          # 2. Upgrade desktop_app.py to v7.0.0
-          if os.path.exists("desktop_app.py"):
-              with open("desktop_app.py", "r", encoding="utf-8") as f:
-                  dp = f.read()
-              dp = dp.replace("v6.9.0", "v7.0.0").replace("v6.8.0", "v7.0.0")
-              with open("desktop_app.py", "w", encoding="utf-8", newline="\n") as f:
-                  f.write(dp)
-
-          # 3. Upgrade static/index.html to v7.0.0 (2 seasons Apr/Nov, 100% city_km=km, Header Fuel Block, DB preservation from localStorage)
-          if os.path.exists("static/index.html"):
-              with open("static/index.html", "r", encoding="utf-8") as f:
-                  h = f.read()
-              h = h.replace("v6.9.0", "v7.0.0").replace("v6.8.0", "v7.0.0").replace("v6.7.0", "v7.0.0")
-              h = h.replace(
-                  "const isWinter = (month === 12 || month === 1 || month === 2);\n      const isSummer = (month >= 5 && month <= 8);\n      const defaultNorm = isWinter ? (prof.normWinter || 18.7) : (isSummer ? (prof.normSummer || 16.8) : (prof.normAutumn || 17.8));",
-                  "const isSummer = (month >= 4 && month <= 10);\n      const defaultNorm = isSummer ? (prof.normSummer || 16.8) : (prof.normWinter || 18.7);"
-              )
-              h = h.replace(
-                  "d.city_km = d.legs.length > 0 ? Math.max(0, parseInt(d.legs[0].km, 10) || 0) : 0;",
-                  "d.city_km = d.km;"
-              )
-              h = h.replace(
-                  "d.city_km = editedDay.legs.length > 0 ? Math.max(1, parseInt(editedDay.legs[0].km, 10) || 1) : 0;",
-                  "d.city_km = editedDay.km;"
-              )
-              h = h.replace("'25,7': dayObj ? dayObj.city_km : 0,", "'25,7': dayObj ? dayObj.km : 0,")
-              old_hf = "'48,10': prof.arrTimeDefault || '18-00',"
-              new_hf = (
-                  "'47,24': (dayObj && Number(dayObj.refueled) > 0) ? Number(dayObj.refueled).toFixed(2) : '',\n"
-                  "        '48,10': prof.arrTimeDefault || '18-00',\n"
-                  "        '49,18': (dayObj && Number(dayObj.refueled) > 0) ? String(dayObj.receipt_num || dayObj.waybill_num || '1') : '',\n"
-                  "        '50,24': (dayObj && dayObj.start_tank !== undefined) ? Number(dayObj.start_tank).toFixed(2) : '',\n"
-                  "        '52,24': (dayObj && dayObj.end_tank !== undefined) ? Number(dayObj.end_tank).toFixed(2) : '',\n"
-                  "        '54,24': (dayObj && dayObj.burned !== undefined) ? Number(dayObj.burned).toFixed(2) : '',\n"
-                  "        '55,24': (dayObj && dayObj.burned !== undefined) ? Number(dayObj.burned).toFixed(2) : '',"
-              )
-              if "'54,24':" not in h and old_hf in h:
-                  h = h.replace(old_hf, new_hf, 1)
-              # Ensure localStorage DB is never overwritten by an empty server DB after an update
-              h = h.replace(
-                  "if (data && Array.isArray(data.profiles)) {\n            loaded = data;\n            loadedFromServer = true;\n          }",
-                  "if (data && Array.isArray(data.profiles) && (data.profiles.length > 0 || (data.users && data.users.length > 0))) {\n            loaded = data;\n            loadedFromServer = true;\n          }"
-              )
-              with open("static/index.html", "w", encoding="utf-8", newline="\n") as f:
-                  f.write(h)
-
-          import server
-          assert server.APP_VERSION == "v7.0.0"
-          print("Verified v7.0.0 upgrade!")
+          python -c "import os, json; open('version.txt','w',encoding='utf-8').write('v7.0.0\n')"
+          python -c "p='server.py'; s=open(p,'r',encoding='utf-8').read().replace('v6.9.0','v7.0.0').replace('v6.8.0','v7.0.0').replace('v6.7.0','v7.0.0').replace('\"25,7\": day_obj.get(\"city_km\", 0),','\"25,7\": day_obj.get(\"km\", 0),').replace('cell.value = \"=X7\"','cell.value = \"=SUM(X7:Z19)\"'); open(p,'w',encoding='utf-8').write(s)"
+          python -c "p='desktop_app.py'; s=open(p,'r',encoding='utf-8').read().replace('v6.9.0','v7.0.0').replace('v6.8.0','v7.0.0'); open(p,'w',encoding='utf-8').write(s)"
+          python -c "p='static/index.html'; s=open(p,'r',encoding='utf-8').read().replace('v6.9.0','v7.0.0').replace('v6.8.0','v7.0.0').replace('v6.7.0','v7.0.0').replace(\"'25,7': dayObj ? dayObj.city_km : 0,\",\"'25,7': dayObj ? dayObj.km : 0,\"); open(p,'w',encoding='utf-8').write(s)"
+          python -c "import server; assert server.APP_VERSION == 'v7.0.0'; print('Verified:', server.APP_VERSION)"
 
       - name: Build standalone Putevka.exe
         run: |
@@ -137,3 +62,5 @@ jobs:
           files: |
             releases/Putevka.exe
             releases/Putevka_Windows_v7_0.exe
+            releases/putevka_windows_desktop_app_v7_0.zip
+            releases/putevka_server_v7_0.zip
