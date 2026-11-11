@@ -1,5 +1,5 @@
 {
-  "appVersion": "v6.8.0",
+  "appVersion": "v6.9.0",
   "adminSetupCompleted": false,
   "users": [],
   "headerTemplates": [],
@@ -5721,5 +5721,7 @@
         ]
       ]
     }
-  }
+  },
+  "savedFolders": [],
+  "savedDocuments": []
 }
