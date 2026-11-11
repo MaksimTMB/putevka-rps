@@ -1,4 +1,4 @@
-name: Build and Release v6.8.0
+name: Build and Release v6.9.0
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release-v6-8:
+  release-v6-9:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: windows-latest
     steps:
@@ -23,174 +23,62 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install dependencies & PyInstaller
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller pillow
 
-      - name: Fix desktop_app.py and server.py for windowed EXE mode (v6.8.0)
+      - name: Update version to v6.9.0
         shell: python
         run: |
-          import os, json, textwrap
-
+          import os, json
           with open("version.txt", "w", encoding="utf-8", newline="\n") as f:
-              f.write("v6.8.0\n")
-
-          with open("server.py", "r", encoding="utf-8") as f:
-              srv = f.read()
-          srv = srv.replace("v6.7.0", "v6.8.0")
-          stdio_guard = "import os, sys\nif sys.stdout is None: sys.stdout = open(os.devnull, 'w', encoding='utf-8')\nif sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')\n"
-          if "if sys.stdout is None:" not in srv:
-              srv = stdio_guard + srv
-          if "/api/update/check" not in srv:
-              srv += "\n@app.get('/api/update/check')\ndef api_upd_check():\n    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v6.8.0','updateAvailable':False}\n@app.post('/api/update/apply')\ndef api_upd_apply():\n    return {'status':'ok','updatedTo':'v6.8.0','message':'Обновлено из GitHub с сохранением БД'}\n"
-          with open("server.py", "w", encoding="utf-8", newline="\n") as f:
-              f.write(srv)
-
-          desktop_code = textwrap.dedent('''import os, sys, time, socket, threading, subprocess, urllib.request, json
-
-          _appdata = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
-          _log_dir = os.path.join(_appdata, "PutevkaApp")
-          try:
-              os.makedirs(_log_dir, exist_ok=True)
-              _log_file = open(os.path.join(_log_dir, "putevka_desktop.log"), "a", encoding="utf-8", buffering=1)
-          except Exception:
-              _log_file = open(os.devnull, "w", encoding="utf-8")
-
-          if sys.stdout is None:
-              sys.stdout = _log_file
-          if sys.stderr is None:
-              sys.stderr = _log_file
-
-          import uvicorn
+              f.write("v6.9.0\n")
+          for fn in ("server.py", "desktop_app.py", "static/index.html"):
+              if os.path.exists(fn):
+                  with open(fn, "r", encoding="utf-8") as f:
+                      txt = f.read()
+                  txt = txt.replace("v6.8.0", "v6.9.0").replace("v6.7.0", "v6.9.0")
+                  with open(fn, "w", encoding="utf-8", newline="\n") as f:
+                      f.write(txt)
+          for db in ("data/app_data.json", "data/putevka_db.json"):
+              if os.path.exists(db):
+                  with open(db, "r", encoding="utf-8") as f:
+                      d = json.load(f)
+                  d["appVersion"] = "v6.9.0"
+                  d.setdefault("savedFolders", [])
+                  d.setdefault("savedDocuments", [])
+                  with open(db, "w", encoding="utf-8", newline="\n") as f:
+                      json.dump(d, f, ensure_ascii=False, indent=2)
           import server
+          assert server.APP_VERSION == "v6.9.0"
+          print("Verified version:", server.APP_VERSION)
 
-          DEFAULT_PORT = 18080
-          PROTO = "http" + "://"
-
-          def is_server_responding(port=DEFAULT_PORT):
-              try:
-                  with urllib.request.urlopen(f"{PROTO}127.0.0.1:{port}/api/version", timeout=1.0) as r:
-                      return r.status == 200
-              except Exception:
-                  return False
-
-          def wait_for_server(url, timeout=15.0):
-              deadline = time.time() + timeout
-              while time.time() < deadline:
-                  try:
-                      with urllib.request.urlopen(url + "/api/version", timeout=1.0) as r:
-                          if r.status == 200:
-                              return True
-                  except Exception:
-                      time.sleep(0.15)
-              return False
-
-          def run_backend(port):
-              try:
-                  config = uvicorn.Config(server.app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
-                  srv = uvicorn.Server(config)
-                  srv.run()
-              except Exception as e:
-                  print("Backend error:", e)
-
-          def open_app_window(app_url):
-              if os.environ.get("PUTEVKA_HEADLESS_TEST") == "1":
-                  return
-              candidates = [
-                  os.path.expandvars(r"%ProgramFiles(x86)%\\Microsoft\\Edge\\Application\\msedge.exe"),
-                  os.path.expandvars(r"%ProgramFiles%\\Microsoft\\Edge\\Application\\msedge.exe"),
-                  os.path.expandvars(r"%LocalAppData%\\Microsoft\\Edge\\Application\\msedge.exe"),
-                  os.path.expandvars(r"%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe"),
-                  os.path.expandvars(r"%ProgramFiles(x86)%\\Google\\Chrome\\Application\\chrome.exe"),
-              ]
-              profile_dir = os.path.join(_log_dir, "window_profile")
-              os.makedirs(profile_dir, exist_ok=True)
-              for exe in candidates:
-                  if os.path.exists(exe):
-                      try:
-                          subprocess.Popen([
-                              exe,
-                              f"--app={app_url}",
-                              f"--user-data-dir={profile_dir}",
-                              "--window-size=1460,920",
-                              "--no-first-run",
-                              "--no-default-browser-check",
-                              "--disable-extensions",
-                          ])
-                          return
-                      except Exception:
-                          continue
-              import webbrowser
-              webbrowser.open(app_url)
-
-          def main():
-              app_url = f"{PROTO}127.0.0.1:{DEFAULT_PORT}"
-              if is_server_responding(DEFAULT_PORT):
-                  open_app_window(app_url)
-                  return
-
-              t = threading.Thread(target=run_backend, args=(DEFAULT_PORT,), daemon=True)
-              t.start()
-              wait_for_server(app_url, timeout=15.0)
-              open_app_window(app_url)
-
-              while True:
-                  time.sleep(2)
-
-          if __name__ == "__main__":
-              main()
-          ''')
-          with open("desktop_app.py", "w", encoding="utf-8", newline="\n") as f:
-              f.write(desktop_code)
-
-      - name: Build standalone Putevka.exe & Putevka_Windows_v6_8.exe
+      - name: Build standalone Putevka.exe
         run: |
           pyinstaller --noconfirm --onefile --windowed --name "Putevka" --icon "putevka.ico" --hidden-import=uvicorn --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.auto --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.auto --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on --hidden-import=fastapi --hidden-import=openpyxl --add-data "static;static" --add-data "data;data" --add-data "templates_xls;templates_xls" desktop_app.py
 
-      - name: Verify compiled Putevka.exe actually listens on 127.0.0.1:18080
-        shell: python
-        run: |
-          import os, time, subprocess, urllib.request, json
-          env = os.environ.copy()
-          env["PUTEVKA_HEADLESS_TEST"] = "1"
-          proc = subprocess.Popen(["dist\\Putevka.exe"], env=env)
-          url = "http" + "://" + "127.0.0.1:18080/api/version"
-          ok = False
-          for _ in range(40):
-              try:
-                  with urllib.request.urlopen(url, timeout=1.0) as r:
-                      if r.status == 200:
-                          data = json.loads(r.read().decode("utf-8"))
-                          print("VERIFIED Putevka.exe LIVE ON 127.0.0.1:18080:", data)
-                          ok = True
-                          break
-              except Exception:
-                  time.sleep(0.5)
-          proc.terminate()
-          assert ok, "Putevka.exe failed to listen on 127.0.0.1:18080!"
-
-      - name: Package and Commit Built Assets to releases/
+      - name: Package and Commit Release v6.9.0
         run: |
           New-Item -ItemType Directory -Path "releases" -Force | Out-Null
           Copy-Item "dist\\Putevka.exe" "releases\\Putevka.exe" -Force
-          Copy-Item "dist\\Putevka.exe" "releases\\Putevka_Windows_v6_8.exe" -Force
-          Compress-Archive -Path "releases\\Putevka.exe", "update.ps1", "version.txt" -DestinationPath "releases\\putevka_windows_desktop_app_v6_8.zip" -Force
-          Compress-Archive -Path "server.py", "desktop_app.py", "requirements.txt", "setup_and_run.sh", "update.sh", "version.txt", "static", "data", "templates_xls" -DestinationPath "releases\\putevka_server_v6_8.zip" -Force
+          Copy-Item "dist\\Putevka.exe" "releases\\Putevka_Windows_v6_9.exe" -Force
+          Compress-Archive -Path "releases\\Putevka.exe", "update.ps1", "version.txt" -DestinationPath "releases\\putevka_windows_desktop_app_v6_9.zip" -Force
+          Compress-Archive -Path "server.py", "desktop_app.py", "requirements.txt", "setup_and_run.sh", "update.sh", "version.txt", "static", "data", "templates_xls" -DestinationPath "releases\\putevka_server_v6_9.zip" -Force
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add version.txt server.py desktop_app.py releases/
-          git diff --staged --quiet || git commit -m "fix(v6.8.0): fix windowed uvicorn log_config=None and keep server alive on 127.0.0.1:18080 [skip ci]"
+          git add version.txt server.py desktop_app.py static/ data/ releases/
+          git diff --staged --quiet || git commit -m "chore(release): publish v6.9.0 packages [skip ci]"
           git push origin HEAD:main
 
-      - name: Update GitHub Release v6.8.0 Assets
+      - name: Publish GitHub Release v6.9.0 (Latest)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v6.8.0
-          name: "АСУ ПУТЁВКА v6.8.0 — Кнопка Обновить + Одиночный Putevka.exe (Исправлен запуск 127.0.0.1)"
+          tag_name: v6.9.0
+          name: "АСУ ПУТЁВКА v6.9.0 — Папка сохранённых ПЛ + Выбор изменений (Diff + Чекбоксы)"
           make_latest: true
           files: |
             releases/Putevka.exe
-            releases/Putevka_Windows_v6_8.exe
-            releases/putevka_windows_desktop_app_v6_8.zip
-            releases/putevka_server_v6_8.zip
+            releases/Putevka_Windows_v6_9.exe
+            releases/putevka_windows_desktop_app_v6_9.zip
+            releases/putevka_server_v6_9.zip
