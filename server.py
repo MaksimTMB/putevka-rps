@@ -9,9 +9,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.0.1"
+APP_VERSION = "v7.0.2"
 
-app = FastAPI(title="ПУТЁВКА v7.0.1 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.0.2 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -73,41 +73,24 @@ def xml_esc(s):
 def get_front_overrides(prof: dict, day_obj: dict) -> dict:
     d_str = day_obj.get("date_ru", "")
     fg = str(day_obj.get("fuel_grade") or prof.get("defaultFuelGrade") or "92")
+    ref = float(day_obj.get("refueled") or 0)
     return {
-        "1,18": prof.get("waybillSeries") or "",
-        "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "",
-        "3,7": d_str,
-        "3,13": d_str,
-        "4,22": prof.get("okud") or "0345001",
-        "5,4": prof.get("orgFull") or "",
-        "5,22": prof.get("okpo") or "",
-        "8,5": prof.get("carModel") or "",
-        "9,8": prof.get("carPlate") or "",
-        "9,22": prof.get("garageNumber") or "",
-        "10,2": prof.get("driverFull") or "",
-        "10,22": prof.get("tabNumber") or "",
-        "12,5": prof.get("license") or "",
-        "12,20": prof.get("licenseClass") or "В",
-        "13,6": prof.get("snils") or "",
-        "14,6": prof.get("transportInfo") or "перевозка для собственных нужд",
-        "17,0": prof.get("medOrgPre") or "",
-        "28,0": prof.get("orgShort") or "",
-        "28,22": prof.get("mechanic") or "",
-        "34,23": prof.get("dispatcher") or "",
-        "37,22": prof.get("driverShort") or "",
-        "40,20": "АИ",
-        "40,24": fg,
-        "41,10": d_str,
-        "42,10": prof.get("depTimeDefault") or "9-00",
-        "44,9": prof.get("dispatcher") or "",
-        "47,10": d_str,
-        "47,24": (f"{float(day_obj.get('refueled') or 0):.2f}" if float(day_obj.get('refueled') or 0) > 0 else ""), "48,10": prof.get("arrTimeDefault") or "18-00", "49,18": (str(day_obj.get("receipt_num") or day_obj.get("waybill_num") or "1") if float(day_obj.get("refueled") or 0) > 0 else ""), "50,24": f"{float(day_obj.get('start_tank') if day_obj.get('start_tank') is not None else 20.0):.2f}", "52,24": f"{float(day_obj.get('end_tank') if day_obj.get('end_tank') is not None else 20.0):.2f}", "54,24": f"{float(day_obj.get('burned') or 0):.2f}", "55,24": f"{float(day_obj.get('burned') or 0):.2f}",
-        "50,9": prof.get("dispatcher") or "",
-        "62,22": prof.get("dispatcher") or "",
-        "67,9": prof.get("driverShort") or "",
-        "68,22": prof.get("driverShort") or "",
+        "1,18": prof.get("waybillSeries") or "", "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "",
+        "3,7": d_str, "3,13": d_str, "4,22": prof.get("okud") or "0345001", "5,4": prof.get("orgFull") or "", "5,22": prof.get("okpo") or "",
+        "8,5": prof.get("carModel") or "", "9,8": prof.get("carPlate") or "", "9,22": prof.get("garageNumber") or "",
+        "10,2": prof.get("driverFull") or "", "10,22": prof.get("tabNumber") or "", "12,5": prof.get("license") or "",
+        "12,20": prof.get("licenseClass") or "В", "13,6": prof.get("snils") or "",
+        "14,6": prof.get("transportInfo") or "перевозка для собственных нужд", "17,0": prof.get("medOrgPre") or "",
+        "28,0": prof.get("orgShort") or "", "28,22": prof.get("mechanic") or "", "34,23": prof.get("dispatcher") or "",
+        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str,
+        "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str,
+        "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",
+        "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "",
+        "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "",
+        "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""),
+        "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),
+        "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""
     }
-
 
 def get_back_overrides(prof: dict, day_obj: dict) -> dict:
     wb_num = day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or ""
@@ -968,7 +951,7 @@ def export_docx(payload: dict = Body(...)):
     st = load_valid_state()
     schema = st.get("xls_schema")
     prof = payload.get("profile")
-    days_list = payload.get("days", [])
+    days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]
     file_name = payload.get("fileName") or "putevoy_list.docx"
     if not prof or not days_list or not schema:
         raise HTTPException(status_code=400, detail="Недостаточно данных для генерации документа Word")
@@ -986,7 +969,7 @@ def export_xlsx(payload: dict = Body(...)):
     st = load_valid_state()
     schema = st.get("xls_schema")
     prof = payload.get("profile")
-    days_list = payload.get("days", [])
+    days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]
     file_name = payload.get("fileName") or "putevoy_list.xlsx"
     if not prof or not days_list or not schema:
         raise HTTPException(status_code=400, detail="Недостаточно данных для генерации документа Excel")
@@ -1007,7 +990,7 @@ if __name__ == "__main__":
 
 @app.get('/api/update/check')
 def api_upd_check():
-    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.1','updateAvailable':False}
+    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.2','updateAvailable':False}
 @app.post('/api/update/apply')
 def api_upd_apply():
-    return {'status':'ok','updatedTo':'v7.0.1','message':'Обновлено из GitHub с сохранением БД'}
+    return {'status':'ok','updatedTo':'v7.0.2','message':'Обновлено из GitHub с сохранением БД'}
