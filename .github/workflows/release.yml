@@ -31,7 +31,8 @@ jobs:
       - name: Apply v7.0.1 Header Fuel Block to Every Waybill & Verify
         shell: python
         run: |
-          import os, json
+          import sys, os, json
+          sys.path.insert(0, '.')
           open("version.txt", "w", encoding="utf-8").write("v7.0.1\n")
           s = open("server.py", "r", encoding="utf-8").read().replace("v7.0.0", "v7.0.1").replace("v6.9.0", "v7.0.1").replace("v6.8.0", "v7.0.1").replace("v6.7.0", "v7.0.1")
           s = s.replace('"25,7": day_obj.get("city_km", 0),', '"25,7": day_obj.get("km", 0),').replace('cell.value = "=X7"', 'cell.value = "=SUM(X7:Z19)"')
