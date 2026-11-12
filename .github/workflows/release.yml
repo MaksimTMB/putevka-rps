@@ -20,31 +20,54 @@ jobs:
         run: |
           import pathlib, sys, os, subprocess, zipfile
           sys.path.insert(0, os.getcwd())
-          subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
+          subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
           pathlib.Path("version.txt").write_text("7.0.2\n", encoding="utf-8")
-          pathlib.Path("data/app_data.json").write_text(pathlib.Path("data/app_data.json").read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2"), encoding="utf-8")
-          pathlib.Path("data/putevka_db.json").write_text(pathlib.Path("data/putevka_db.json").read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2"), encoding="utf-8")
           sp = pathlib.Path("server.py")
-          s = sp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2")
-          s = s.replace("round(km * (0.4 + random.random() * 0.25))", "km").replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0")
+          s = sp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("7.0.1", "7.0.2")
+          s = s.replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0")
           s = s.replace("eff_norm = round(base_norm * (1 + season_pct / 100.0), 3)", "eff_norm = round(base_norm, 3)")
           s = s.replace('days_list = payload.get("days", [])', 'days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]')
-          s = s.replace('"40,24": fg,', '"40,24": fg, "47,24": f"{float(day_obj.get(\'refueled\') or 0):.2f}".replace(".", ",") if float(day_obj.get("refueled") or 0) > 0 else "", "49,18": str(day_obj.get("receipt_num") or "") if float(day_obj.get("refueled") or 0) > 0 else "", "50,24": f"{float(day_obj.get(\'start_tank\') or 0):.2f}".replace(".", ",") if day_obj.get("start_tank") is not None else "", "52,24": f"{float(day_obj.get(\'end_tank\') or 0):.2f}".replace(".", ",") if float(day_obj.get("end_tank") is not None else "", "54,24": f"{float(day_obj.get(\'burned\') or 0):.2f}".replace(".", ",") if float(day_obj.get("burned") or 0) > 0 else "", "55,24": f"{float(day_obj.get(\'burned\') or 0):.2f}".replace(".", ",") if float(day_obj.get("burned") or 0) > 0 else "",')
-          sp.write_text(s, encoding="utf-8")
+          a, b = s.split("def get_front_overrides")
+          _, c = b.split("def get_back_overrides", 1)
+          fn = 'def get_front_overrides(prof: dict, day_obj: dict) -> dict:\n'
+          fn += '    d_str = day_obj.get("date_ru", "")\n'
+          fn += '    fg = str(day_obj.get("fuel_grade") or prof.get("defaultFuelGrade") or "92")\n'
+          fn += '    ref = float(day_obj.get("refueled") or 0)\n'
+          fn += '    return {\n'
+          fn += '        "1,18": prof.get("waybillSeries") or "", "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "",\n'
+          fn += '        "3,7": d_str, "3,13": d_str, "4,22": prof.get("okud") or "0345001", "5,4": prof.get("orgFull") or "", "5,22": prof.get("okpo") or "",\n'
+          fn += '        "8,5": prof.get("carModel") or "", "9,8": prof.get("carPlate") or "", "9,22": prof.get("garageNumber") or "",\n'
+          fn += '        "10,2": prof.get("driverFull") or "", "10,22": prof.get("tabNumber") or "", "12,5": prof.get("license") or "",\n'
+          fn += '        "12,20": prof.get("licenseClass") or "В", "13,6": prof.get("snils") or "",\n'
+          fn += '        "14,6": prof.get("transportInfo") or "перевозка для собственных нужд", "17,0": prof.get("medOrgPre") or "",\n'
+          fn += '        "28,0": prof.get("orgShort") or "", "28,22": prof.get("mechanic") or "", "34,23": prof.get("dispatcher") or "",\n'
+          fn += '        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str,\n'
+          fn += '        "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str,\n'
+          fn += '        "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",\n'
+          fn += '        "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "",\n'
+          fn += '        "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "",\n'
+          fn += '        "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""),\n'
+          fn += '        "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),\n'
+          fn += '        "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""\n'
+          fn += '    }\n\n'
+          sp.write_text(a + fn + "def get_back_overrides" + c, encoding="utf-8")
           hp = pathlib.Path("static/index.html")
-          h = hp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2")
-          h = h.replace("const effNorm = +(baseNorm * (1 + seasonPct / 100)).toFixed(3);", "const effNorm = +baseNorm.toFixed(3);").replace("Math.round(km * (0.4 + Math.random() * 0.25))", "km").replace("Math.round(km * 0.55)", "km")
-          h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ листа / чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>')
+          h = hp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("7.0.1", "7.0.2")
+          h = h.replace("const effNorm = +(baseNorm * (1 + seasonPct / 100)).toFixed(3);", "const effNorm = +baseNorm.toFixed(3);")
+          h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>')
           h = h.replace('tbody.innerHTML = refuelRows.map(({ d, idx }) => {', 'tbody.innerHTML = refuelRows.map(({ d, idx }, rSeq) => { if (!d.receipt_num) d.receipt_num = String(rSeq + 1);')
-          h = h.replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num || (rSeq + 1)}" oninput="getCurrentMonthDays()[${idx}].receipt_num=this.value.trim();renderPreviewCurrentPage();" class="w-20 rounded-xl border border-blue-300 bg-blue-50/40 px-2 py-1.5 text-xs text-center font-extrabold text-blue-950" /></td><td class="py-2.5 px-2"><input type="text" id="recTime_${idx}"')
+          h = h.replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num}" oninput="d.receipt_num=this.value.trim()" class="w-16 border px-1 text-center font-bold" /></td><td><input type="text" id="recTime_${idx}"')
           h = h.replace('const elT = document.getElementById(`recTime_${idx}`);', 'const elN = document.getElementById(`recNum_${idx}`); if (elN) d.receipt_num = elN.value.trim(); const elT = document.getElementById(`recTime_${idx}`);')
-          h = h.replace("'40,24': fg,", "'40,24': fg, '47,24': (dayObj && Number(dayObj.refueled) > 0) ? fmtNumRu(dayObj.refueled, 2) : '', '49,18': (dayObj && Number(dayObj.refueled) > 0) ? String((typeof getCurrentMonthDays === 'function' && getCurrentMonthDays().indexOf(dayObj) >= 0 && document.getElementById('recNum_' + getCurrentMonthDays().indexOf(dayObj)) ? document.getElementById('recNum_' + getCurrentMonthDays().indexOf(dayObj)).value.trim() : '') || dayObj.receipt_num || ((typeof getCurrentMonthDays === 'function' ? getCurrentMonthDays().filter(x => Number(x.refueled) > 0).indexOf(dayObj) + 1 : 0) || 1)) : '', '50,24': (dayObj && dayObj.start_tank !== undefined && dayObj.start_tank !== null) ? fmtNumRu(dayObj.start_tank, 2) : (document.getElementById('inputStartTank') ? fmtNumRu(parseFloat(String(document.getElementById('inputStartTank').value).replace(',','.')) || 0, 2) : ''), '52,24': (dayObj && dayObj.end_tank !== undefined && dayObj.end_tank !== null) ? fmtNumRu(dayObj.end_tank, 2) : '', '54,24': (dayObj && Number(dayObj.burned) > 0) ? fmtNumRu(dayObj.burned, 2) : '', '55,24': (dayObj && Number(dayObj.burned) > 0) ? fmtNumRu(dayObj.burned, 2) : '',")
+          h = h.replace("'40,20': 'АИ',", "'40,20': 'АИ', '47,24': (dayObj && dayObj.refueled > 0) ? fmtNumRu(dayObj.refueled, 2) : '',")
+          h = h.replace("'40,24': fg,", "'40,24': fg, '49,18': (dayObj && dayObj.refueled > 0) ? String(dayObj.receipt_num || (getCurrentMonthDays().filter(x => x.refueled > 0).indexOf(dayObj) + 1) || 1) : '',")
+          h = h.replace("'41,10': dStr,", "'41,10': dStr, '50,24': (dayObj && dayObj.start_tank != null) ? fmtNumRu(dayObj.start_tank, 2) : '', '52,24': (dayObj && dayObj.end_tank != null) ? fmtNumRu(dayObj.end_tank, 2) : '',")
+          h = h.replace("'47,10': dStr,", "'47,10': dStr, '54,24': (dayObj && dayObj.burned > 0) ? fmtNumRu(dayObj.burned, 2) : '', '55,24': (dayObj && dayObj.burned > 0) ? fmtNumRu(dayObj.burned, 2) : '',")
           hp.write_text(h, encoding="utf-8")
           import server
-          days_sample = [{"date_ru": "05.09.2026", "refueled": 30.0, "start_tank": 20.0, "end_tank": 38.6, "burned": 11.4}, {"date_ru": "12.09.2026", "refueled": 35.0, "start_tank": 15.0, "end_tank": 39.2, "burned": 10.8}, {"date_ru": "20.09.2026", "refueled": 40.0, "receipt_num": "405", "start_tank": 12.0, "end_tank": 40.0, "burned": 12.0}]
-          [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_sample if float(x.get("refueled") or 0) > 0], 1)]
-          assert server.get_front_overrides({}, days_sample[0])["49,18"] == "1" and server.get_front_overrides({}, days_sample[1])["49,18"] == "2" and server.get_front_overrides({}, days_sample[2])["49,18"] == "405"
+          ov1 = server.get_front_overrides({}, {"date_ru": "05.09.2026", "refueled": 30.0, "receipt_num": "1"})
+          ov2 = server.get_front_overrides({}, {"date_ru": "12.09.2026", "refueled": 35.0, "receipt_num": "2"})
+          assert ov1["49,18"] == "1" and ov2["49,18"] == "2"
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
           z = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_2.zip", "w", zipfile.ZIP_DEFLATED); [z.write(f, os.path.basename(f)) for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]]; z.close()
           subprocess.run(["gh", "release", "delete", "v7.0.2", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.0.2", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_2.zip", "update.ps1", "update.sh", "--title", "АСУ ПУТЁВКА v7.0.2", "--notes", "Исправлено заполнение поля по заправочному листу N (ячейка 49,18) в шапке ПЛ напрямую из таблицы чеков (1, 2, 3... или пользовательский номер чека).", "--latest"], check=True)
+          subprocess.run(["gh", "release", "create", "v7.0.2", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_2.zip", "update.ps1", "update.sh", "--title", "АСУ ПУТЁВКА v7.0.2", "--notes", "Номер заправочного листа (49,18) берется из таблицы чеков", "--latest"], check=True)
