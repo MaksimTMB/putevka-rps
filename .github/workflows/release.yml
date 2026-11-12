@@ -1,4 +1,4 @@
-name: Build and Release v7.0.0
+name: Build and Release v7.0.1
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release-v7-0:
+  release-v7-0-1:
     if: "!contains(github.event.head_commit.message, '[skip ci]')"
     runs-on: windows-latest
     steps:
@@ -28,40 +28,54 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pyinstaller pillow
 
-      - name: Update version and apply v7.0.0 rules
-        shell: bash
+      - name: Apply v7.0.1 Header Fuel Block to Every Waybill & Verify
+        shell: python
         run: |
-          python -c "import os, json; open('version.txt','w',encoding='utf-8').write('v7.0.0\n')"
-          python -c "p='server.py'; s=open(p,'r',encoding='utf-8').read().replace('v6.9.0','v7.0.0').replace('v6.8.0','v7.0.0').replace('v6.7.0','v7.0.0').replace('\"25,7\": day_obj.get(\"city_km\", 0),','\"25,7\": day_obj.get(\"km\", 0),').replace('cell.value = \"=X7\"','cell.value = \"=SUM(X7:Z19)\"'); open(p,'w',encoding='utf-8').write(s)"
-          python -c "p='desktop_app.py'; s=open(p,'r',encoding='utf-8').read().replace('v6.9.0','v7.0.0').replace('v6.8.0','v7.0.0'); open(p,'w',encoding='utf-8').write(s)"
-          python -c "p='static/index.html'; s=open(p,'r',encoding='utf-8').read().replace('v6.9.0','v7.0.0').replace('v6.8.0','v7.0.0').replace('v6.7.0','v7.0.0').replace(\"'25,7': dayObj ? dayObj.city_km : 0,\",\"'25,7': dayObj ? dayObj.km : 0,\"); open(p,'w',encoding='utf-8').write(s)"
-          python -c "import server; assert server.APP_VERSION == 'v7.0.0'; print('Verified:', server.APP_VERSION)"
+          import os, json
+          open("version.txt", "w", encoding="utf-8").write("v7.0.1\n")
+          s = open("server.py", "r", encoding="utf-8").read().replace("v7.0.0", "v7.0.1").replace("v6.9.0", "v7.0.1").replace("v6.8.0", "v7.0.1").replace("v6.7.0", "v7.0.1")
+          s = s.replace('"25,7": day_obj.get("city_km", 0),', '"25,7": day_obj.get("km", 0),').replace('cell.value = "=X7"', 'cell.value = "=SUM(X7:Z19)"')
+          s = s if '"54,24":' in s else s.replace('"48,10": prof.get("arrTimeDefault") or "18-00",', '"47,24": (f"{float(day_obj.get(\'refueled\') or 0):.2f}" if float(day_obj.get(\'refueled\') or 0) > 0 else ""), "48,10": prof.get("arrTimeDefault") or "18-00", "49,18": (str(day_obj.get("receipt_num") or day_obj.get("waybill_num") or "1") if float(day_obj.get("refueled") or 0) > 0 else ""), "50,24": f"{float(day_obj.get(\'start_tank\') if day_obj.get(\'start_tank\') is not None else 20.0):.2f}", "52,24": f"{float(day_obj.get(\'end_tank\') if day_obj.get(\'end_tank\') is not None else 20.0):.2f}", "54,24": f"{float(day_obj.get(\'burned\') or 0):.2f}", "55,24": f"{float(day_obj.get(\'burned\') or 0):.2f}",')
+          open("server.py", "w", encoding="utf-8").write(s)
+          dp = open("desktop_app.py", "r", encoding="utf-8").read().replace("v7.0.0", "v7.0.1").replace("v6.9.0", "v7.0.1").replace("v6.8.0", "v7.0.1")
+          open("desktop_app.py", "w", encoding="utf-8").write(dp)
+          h = open("static/index.html", "r", encoding="utf-8").read().replace("v7.0.0", "v7.0.1").replace("v6.9.0", "v7.0.1").replace("v6.8.0", "v7.0.1").replace("v6.7.0", "v7.0.1")
+          h = h.replace("'25,7': dayObj ? dayObj.city_km : 0,", "'25,7': dayObj ? dayObj.km : 0,")
+          h = h if "'54,24':" in h else h.replace("'48,10': prof.arrTimeDefault || '18-00',", "'47,24': (dayObj && Number(dayObj.refueled) > 0) ? Number(dayObj.refueled).toFixed(2) : '', '48,10': prof.arrTimeDefault || '18-00', '49,18': (dayObj && Number(dayObj.refueled) > 0) ? String(dayObj.receipt_num || dayObj.waybill_num || '1') : '', '50,24': (dayObj && dayObj.start_tank !== undefined && dayObj.start_tank !== null) ? Number(dayObj.start_tank).toFixed(2) : String((parseFloat((document.getElementById('inputStartTank')||{}).value)||20).toFixed(2)), '52,24': (dayObj && dayObj.end_tank !== undefined && dayObj.end_tank !== null) ? Number(dayObj.end_tank).toFixed(2) : String((parseFloat((document.getElementById('inputStartTank')||{}).value)||20).toFixed(2)), '54,24': (dayObj && dayObj.burned !== undefined && dayObj.burned !== null) ? Number(dayObj.burned).toFixed(2) : '0.00', '55,24': (dayObj && dayObj.burned !== undefined && dayObj.burned !== null) ? Number(dayObj.burned).toFixed(2) : '0.00',")
+          h = h.replace("const d = days[0] || { date_ru: '01.09.2026', fuel_grade: prof.defaultFuelGrade || '92' };", "const d = days[state.selectedDayIndex] || days.find(x => !x.excluded) || days[0] || { date_ru: '01.09.2026', fuel_grade: prof.defaultFuelGrade || '92', start_tank: parseFloat((document.getElementById('inputStartTank')||{}).value)||20, end_tank: parseFloat((document.getElementById('inputStartTank')||{}).value)||20, burned: 0, refueled: 0 };")
+          h = h.replace("const curPer = getActivePeriodObj();\n      if (!curPer) return;", "let curPer = getActivePeriodObj();\n      if (!curPer) { const rp = ensureRealActiveProfile(); const pk = createCleanPeriodObject(rp, 2026, 9, parseFloat((document.getElementById('inputStartTank')||{}).value)||20); state.currentMonthKey = pk; curPer = rp.periods[pk]; }")
+          open("static/index.html", "w", encoding="utf-8").write(h)
+          import server
+          ov = server.get_front_overrides({}, {"date_ru": "01.09.2026", "start_tank": 22.4, "refueled": 30, "receipt_num": "15", "burned": 8.5, "end_tank": 43.9})
+          assert ov["47,24"] == "30.00" and ov["49,18"] == "15" and ov["50,24"] == "22.40" and ov["52,24"] == "43.90" and ov["54,24"] == "8.50" and ov["55,24"] == "8.50", ov
+          assert "'54,24':" in h and "'55,24':" in h
+          print("VERIFIED HEADER FUEL BLOCK IN ALL WAYBILLS:", ov["50,24"], ov["54,24"], ov["55,24"])
 
       - name: Build standalone Putevka.exe
         run: |
           pyinstaller --noconfirm --onefile --windowed --name "Putevka" --icon "putevka.ico" --hidden-import=uvicorn --hidden-import=uvicorn.logging --hidden-import=uvicorn.loops --hidden-import=uvicorn.loops.auto --hidden-import=uvicorn.protocols --hidden-import=uvicorn.protocols.http --hidden-import=uvicorn.protocols.http.auto --hidden-import=uvicorn.lifespan --hidden-import=uvicorn.lifespan.on --hidden-import=fastapi --hidden-import=openpyxl --add-data "static;static" --add-data "data;data" --add-data "templates_xls;templates_xls" desktop_app.py
 
-      - name: Package and Commit Release v7.0.0
+      - name: Package and Commit Release v7.0.1
         run: |
           New-Item -ItemType Directory -Path "releases" -Force | Out-Null
           Copy-Item "dist\\Putevka.exe" "releases\\Putevka.exe" -Force
-          Copy-Item "dist\\Putevka.exe" "releases\\Putevka_Windows_v7_0.exe" -Force
-          Compress-Archive -Path "releases\\Putevka.exe", "update.ps1", "version.txt" -DestinationPath "releases\\putevka_windows_desktop_app_v7_0.zip" -Force
-          Compress-Archive -Path "server.py", "desktop_app.py", "requirements.txt", "setup_and_run.sh", "update.sh", "version.txt", "static", "data", "templates_xls" -DestinationPath "releases\\putevka_server_v7_0.zip" -Force
+          Copy-Item "dist\\Putevka.exe" "releases\\Putevka_Windows_v7_0_1.exe" -Force
+          Compress-Archive -Path "releases\\Putevka.exe", "update.ps1", "version.txt" -DestinationPath "releases\\putevka_windows_desktop_app_v7_0_1.zip" -Force
+          Compress-Archive -Path "server.py", "desktop_app.py", "requirements.txt", "setup_and_run.sh", "update.sh", "version.txt", "static", "data", "templates_xls" -DestinationPath "releases\\putevka_server_v7_0_1.zip" -Force
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add version.txt server.py desktop_app.py static/ releases/
-          git diff --staged --quiet || git commit -m "chore(release): publish v7.0.0 packages [skip ci]"
+          git diff --staged --quiet || git commit -m "chore(release): publish v7.0.1 packages with header fuel block [skip ci]"
           git push origin HEAD:main
 
-      - name: Publish GitHub Release v7.0.0 (Latest)
+      - name: Publish GitHub Release v7.0.1 (Latest)
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v7.0.0
-          name: "АСУ ПУТЁВКА v7.0.0 — 2 сезона (Лето/Зима), 100% Город, Движение горючего в шапке, Выходные АЗС и Миграция БД"
+          tag_name: v7.0.1
+          name: "АСУ ПУТЁВКА v7.0.1 — Блок «Движение горючего» в шапке каждого ПЛ + Расчёт от начального остатка"
           make_latest: true
           files: |
             releases/Putevka.exe
-            releases/Putevka_Windows_v7_0.exe
-            releases/putevka_windows_desktop_app_v7_0.zip
-            releases/putevka_server_v7_0.zip
+            releases/Putevka_Windows_v7_0_1.exe
+            releases/putevka_windows_desktop_app_v7_0_1.zip
+            releases/putevka_server_v7_0_1.zip
