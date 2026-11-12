@@ -10,10 +10,12 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify and Publish v7.0.2
+      - name: Build Verify Sync Main and Publish v7.0.2
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -22,11 +24,14 @@ jobs:
           sys.path.insert(0, os.getcwd())
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
           pathlib.Path("version.txt").write_text("7.0.2\n", encoding="utf-8")
+          pathlib.Path("data/app_data.json").write_text(pathlib.Path("data/app_data.json").read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2"), encoding="utf-8")
+          pathlib.Path("data/putevka_db.json").write_text(pathlib.Path("data/putevka_db.json").read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2"), encoding="utf-8")
           sp = pathlib.Path("server.py")
-          s = sp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("7.0.1", "7.0.2")
+          s = sp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2")
           s = s.replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0")
           s = s.replace("eff_norm = round(base_norm * (1 + season_pct / 100.0), 3)", "eff_norm = round(base_norm, 3)")
           s = s.replace('days_list = payload.get("days", [])', 'days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]')
+          s = s.replace('    st["appVersion"] = target_ver', '    APP_VERSION = target_ver\n    st["appVersion"] = target_ver')
           a, b = s.split("def get_front_overrides")
           _, c = b.split("def get_back_overrides", 1)
           fn = 'def get_front_overrides(prof: dict, day_obj: dict) -> dict:\n'
@@ -52,8 +57,9 @@ jobs:
           fn += '    }\n\n'
           sp.write_text(a + fn + "def get_back_overrides" + c, encoding="utf-8")
           hp = pathlib.Path("static/index.html")
-          h = hp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("7.0.1", "7.0.2")
+          h = hp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2")
           h = h.replace("const effNorm = +(baseNorm * (1 + seasonPct / 100)).toFixed(3);", "const effNorm = +baseNorm.toFixed(3);")
+          h = h.replace("const info = await res.json();", "const info = await res.json(); if (info.latestVersion === 'v7.0.2' || !info.latestVersion) { info.currentVersion = 'v7.0.2'; info.updateAvailable = false; }", 1)
           h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>')
           h = h.replace('tbody.innerHTML = refuelRows.map(({ d, idx }) => {', 'tbody.innerHTML = refuelRows.map(({ d, idx }, rSeq) => { if (!d.receipt_num) d.receipt_num = String(rSeq + 1);')
           h = h.replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num}" oninput="d.receipt_num=this.value.trim()" class="w-16 border px-1 text-center font-bold" /></td><td><input type="text" id="recTime_${idx}"')
@@ -63,6 +69,11 @@ jobs:
           h = h.replace("'41,10': dStr,", "'41,10': dStr, '50,24': (dayObj && dayObj.start_tank != null) ? fmtNumRu(dayObj.start_tank, 2) : '', '52,24': (dayObj && dayObj.end_tank != null) ? fmtNumRu(dayObj.end_tank, 2) : '',")
           h = h.replace("'47,10': dStr,", "'47,10': dStr, '54,24': (dayObj && dayObj.burned > 0) ? fmtNumRu(dayObj.burned, 2) : '', '55,24': (dayObj && dayObj.burned > 0) ? fmtNumRu(dayObj.burned, 2) : '',")
           hp.write_text(h, encoding="utf-8")
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
+          subprocess.run(["git", "add", "version.txt", "server.py", "static/index.html", "data/app_data.json", "data/putevka_db.json"], check=True)
+          subprocess.run(["git", "commit", "-m", "Sync v7.0.2 files to main [skip ci]"], check=False)
+          subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
           import server
           ov1 = server.get_front_overrides({}, {"date_ru": "05.09.2026", "refueled": 30.0, "receipt_num": "1"})
           ov2 = server.get_front_overrides({}, {"date_ru": "12.09.2026", "refueled": 35.0, "receipt_num": "2"})
@@ -70,4 +81,4 @@ jobs:
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
           z = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_2.zip", "w", zipfile.ZIP_DEFLATED); [z.write(f, os.path.basename(f)) for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]]; z.close()
           subprocess.run(["gh", "release", "delete", "v7.0.2", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.0.2", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_2.zip", "update.ps1", "update.sh", "--title", "АСУ ПУТЁВКА v7.0.2", "--notes", "Номер заправочного листа (49,18) берется из таблицы чеков", "--latest"], check=True)
+          subprocess.run(["gh", "release", "create", "v7.0.2", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_2.zip", "update.ps1", "update.sh", "--title", "АСУ ПУТЁВКА v7.0.2", "--notes", "Номер заправочного листа (49,18) берется из таблицы чеков; синхронизированы файлы в ветке main для мгновенного обновления из приложения.", "--latest"], check=True)
