@@ -9,9 +9,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.0.0"
+APP_VERSION = "v7.0.1"
 
-app = FastAPI(title="ПУТЁВКА v7.0.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.0.1 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -101,7 +101,7 @@ def get_front_overrides(prof: dict, day_obj: dict) -> dict:
         "42,10": prof.get("depTimeDefault") or "9-00",
         "44,9": prof.get("dispatcher") or "",
         "47,10": d_str,
-        "48,10": prof.get("arrTimeDefault") or "18-00",
+        "47,24": (f"{float(day_obj.get('refueled') or 0):.2f}" if float(day_obj.get('refueled') or 0) > 0 else ""), "48,10": prof.get("arrTimeDefault") or "18-00", "49,18": (str(day_obj.get("receipt_num") or day_obj.get("waybill_num") or "1") if float(day_obj.get("refueled") or 0) > 0 else ""), "50,24": f"{float(day_obj.get('start_tank') if day_obj.get('start_tank') is not None else 20.0):.2f}", "52,24": f"{float(day_obj.get('end_tank') if day_obj.get('end_tank') is not None else 20.0):.2f}", "54,24": f"{float(day_obj.get('burned') or 0):.2f}", "55,24": f"{float(day_obj.get('burned') or 0):.2f}",
         "50,9": prof.get("dispatcher") or "",
         "62,22": prof.get("dispatcher") or "",
         "67,9": prof.get("driverShort") or "",
@@ -1007,7 +1007,7 @@ if __name__ == "__main__":
 
 @app.get('/api/update/check')
 def api_upd_check():
-    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.0','updateAvailable':False}
+    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.1','updateAvailable':False}
 @app.post('/api/update/apply')
 def api_upd_apply():
-    return {'status':'ok','updatedTo':'v7.0.0','message':'Обновлено из GitHub с сохранением БД'}
+    return {'status':'ok','updatedTo':'v7.0.1','message':'Обновлено из GitHub с сохранением БД'}
