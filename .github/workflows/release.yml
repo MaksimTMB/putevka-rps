@@ -15,211 +15,56 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify Sync Main and Publish v7.0.5
+      - name: Build Verify and Publish v7.0.5
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           import pathlib, sys, os, re, subprocess, zipfile, shutil
           sys.path.insert(0, os.getcwd())
-          subprocess.run(["git", "checkout", "55bbd62", "--", "server.py", "desktop_app.py", "static/index.html", "update.ps1", "update.sh", "data/app_data.json"], check=False)
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
-          pathlib.Path("version.txt").write_text("7.0.5\n", encoding="utf-8")
-          [pathlib.Path(fn).write_text(re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.5" if m.group(0).startswith("v") else "7.0.5", pathlib.Path(fn).read_text(encoding="utf-8")), encoding="utf-8") for fn in ["data/app_data.json", "data/putevka_db.json", "setup_and_run.sh", "update_on_server.sh", "update.sh", "PutevkaLauncher.cs", "README.md", "CHANGELOG.md"] if pathlib.Path(fn).exists()]
-          dp = pathlib.Path("desktop_app.py")
-          d = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.5" if m.group(0).startswith("v") else "7.0.5", dp.read_text(encoding="utf-8"))
-          d = d.replace('if is_putevka_already_running(18080):', 'subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }"], creationflags=0x08000000, check=False); time.sleep(0.6)\n    if False:')
-          d = d.replace("proc.wait()", "time.sleep(0.2)").replace("if ok and elapsed >= 4.0:", "if False:")
-          dp.write_text(d, encoding="utf-8")
-          ps_lines = ['$ErrorActionPreference = "Continue"', '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8', '$Proto = "https" + "://"', '$Repo = "MaksimTMB/putevka-rps"', '$LatestExeUrl = $Proto + "github.com/" + $Repo + "/releases/latest/download/Putevka.exe"', '$AppDir = Join-Path $env:LOCALAPPDATA "PutevkaApp"', '$DataDir = Join-Path $AppDir "data"', 'New-Item -ItemType Directory -Path $DataDir -Force | Out-Null', 'Write-Host "=== АСУ ПУТЁВКА v7.0.5 - Прямое обновление из GitHub ===" -ForegroundColor Cyan', '$CurDb = Join-Path $DataDir "putevka_db.json"', 'if (Test-Path $CurDb) { Copy-Item -LiteralPath $CurDb -Destination (Join-Path $DataDir "putevka_db.backup.json") -Force }', 'Get-Process -Name "Putevka*", "pythonw*", "python*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue', 'Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }', 'Start-Sleep -Milliseconds 700', 'Remove-Item -Path (Join-Path $AppDir "static") -Recurse -Force -ErrorAction SilentlyContinue', '$TargetExe = Join-Path $AppDir "Putevka.exe"', '$DesktopExe = Join-Path ([Environment]::GetFolderPath("Desktop")) "Putevka.exe"', 'Invoke-WebRequest -Uri $LatestExeUrl -OutFile $TargetExe -UseBasicParsing', 'Copy-Item -LiteralPath $TargetExe -Destination $DesktopExe -Force -ErrorAction SilentlyContinue', 'Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.0.5: $DesktopExe" -ForegroundColor Green', 'Start-Process -FilePath $TargetExe']
-          pathlib.Path("update.ps1").write_text("\r\n".join(ps_lines) + "\r\n", encoding="utf-8")
-          sp = pathlib.Path("server.py")
-          s = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.5" if m.group(0).startswith("v") else "7.0.5", sp.read_text(encoding="utf-8"))
-          s = s.replace("putevka_windows_desktop_app_v6_8.zip", "putevka_windows_desktop_app_v7_0_5.zip").replace("putevka_server_v6_8.zip", "putevka_server_v7_0_5.zip")
-          s = s.replace("round(km * (0.4 + random.random() * 0.25))", "km").replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0").replace("eff_norm = round(base_norm * (1 + season_pct / 100.0), 3)", "eff_norm = round(base_norm, 3)")
-          s = s.replace('"25,7": day_obj.get("city_km", 0),', '"25,7": day_obj.get("km", 0),')
-          s = s.replace('days_list = payload.get("days", [])', 'days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]')
-          s = s.replace('    st["appVersion"] = target_ver', '    APP_VERSION = target_ver\n    st["appVersion"] = target_ver')
-          s = s.replace('if os.path.exists( os.path.join(cand, "index.html") ):', 'if os.path.exists(os.path.join(cand, "index.html")) and "7.0.5" in open(os.path.join(cand, "index.html"), "r", encoding="utf-8", errors="ignore").read(2500):')
-          s = s.replace('if path == "/api/state":', 'if path == "/api/update/apply": self._send_json(apply_github_update())\n            elif path == "/api/state":')
-          a, b = s.split("def get_front_overrides")
-          _, c = b.split("def get_back_overrides", 1)
-          fn = 'def get_front_overrides(prof: dict, day_obj: dict) -> dict:\n    d_str, fg, ref = day_obj.get("date_ru", ""), str(day_obj.get("fuel_grade") or prof.get("defaultFuelGrade") or "92"), float(day_obj.get("refueled") or 0)\n    return {\n'
-          fn += '        "1,18": prof.get("waybillSeries") or "", "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "", "3,7": d_str, "3,13": d_str, "4,22": prof.get("okud") or "0345001", "5,4": prof.get("orgFull") or "", "5,22": prof.get("okpo") or "",\n'
-          fn += '        "8,5": prof.get("carModel") or "", "9,8": prof.get("carPlate") or "", "9,22": prof.get("garageNumber") or "", "10,2": prof.get("driverFull") or "", "10,22": prof.get("tabNumber") or "", "12,5": prof.get("license") or "", "12,20": prof.get("licenseClass") or "В",\n'
-          fn += '        "13,6": prof.get("snils") or "", "14,6": prof.get("transportInfo") or "перевозка для собственных нужд", "17,0": prof.get("medOrgPre") or "", "28,0": prof.get("orgShort") or "", "28,22": prof.get("mechanic") or "", "34,23": prof.get("dispatcher") or "",\n'
-          fn += '        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str, "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str, "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",\n'
-          fn += '        "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "", "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "", "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""), "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),\n'
-          fn += '        "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""}\n\n'
-          s = a + fn + "def get_back_overrides" + c
-          sp.write_text(s, encoding="utf-8")
-          hp = pathlib.Path("static/index.html")
-          h = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.5" if m.group(0).startswith("v") else "7.0.5", hp.read_text(encoding="utf-8"))
-          h = h.replace("const RAW_INIT =", "const _origF = window.fetch ? window.fetch.bind(window) : null; if (_origF && !window._fRet) { window._fRet = 1; window.fetch = async (u, o) => { for (let i = 0; i < 4; i++) { try { return await _origF(u, o); } catch (e) { if (i === 3) throw e; await new Promise(r => setTimeout(r, 350)); } } }; } const RAW_INIT =", 1)
-          h = h.replace('<div class="grid grid-cols-1 sm:grid-cols-3 gap-3">\n            <div>\n              <label class="block font-bold text-slate-700 mb-1">Норма Лето (4–40 л/100 км):</label>', '<div class="grid grid-cols-1 sm:grid-cols-2 gap-3">\n            <div>\n              <label class="block font-bold text-emerald-800 mb-1">☀️ Норма Лето — с апреля по октябрь (л/100 км):</label>')
-          h = h.replace('<div>\n              <label class="block font-bold text-slate-700 mb-1">Межсезонье (4–40 л/100 км):</label>\n              <input type="text" inputmode="decimal" id="setNormAutumn" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-xs font-bold focus:outline-none focus:ring-2 focus:ring-blue-500" />\n            </div>', '<div class="hidden"><input type="hidden" id="setNormAutumn" value="16.8" /></div>')
-          h = h.replace('<label class="block font-bold text-slate-700 mb-1">Норма Зима (4–40 л/100 км):</label>', '<label class="block font-bold text-blue-800 mb-1">❄️ Норма Зима — с ноября по март (л/100 км):</label>')
-          h = h.replace('<label class="block font-bold text-slate-700 mb-1">Базовая норма (4–40 л/100км):</label>', '<label id="lblSeasonalBaseNorm" class="block font-bold text-emerald-800 mb-1">☀️ Сезонная норма (Лето с апр. / Зима с нояб.):</label>')
-          h = h.replace('<label class="block font-bold text-slate-700 mb-1">Отклонение нормы (0–10 %):</label>\n            <input type="text" inputmode="decimal" id="inputNormVar" value="2.0" class="w-full rounded-xl border border-slate-300 px-3.5 py-2.5 text-xs font-bold bg-white focus:outline-none focus:ring-2 focus:ring-blue-500" />', '<label class="block font-bold text-slate-700 mb-1">Режим расхода ГСМ:</label><div id="seasonModeBadgeBox" class="w-full rounded-xl border border-emerald-300 bg-emerald-50 px-3 py-2.5 text-xs font-extrabold text-emerald-900">🏙️ Городской режим (Лето с апр. / Зима с нояб.)</div><input type="hidden" id="inputNormVar" value="0" />')
-          h = h.replace('<div class="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-1">', '<div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">')
-          h = h.replace('<label class="block text-slate-700 font-bold mb-1">Норма Лето (л/100):</label>', '<label class="block text-emerald-800 font-bold mb-1">☀️ Норма Лето с апреля (л/100):</label>')
-          h = h.replace('<div>\n                  <label class="block text-slate-700 font-bold mb-1">Межсезонье (л/100):</label>\n                  <input type="text" inputmode="decimal" id="inspNormAutumn" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white font-bold" />\n                </div>', '<div class="hidden"><input type="hidden" id="inspNormAutumn" value="16.8" /></div>')
-          h = h.replace('<label class="block text-slate-700 font-bold mb-1">Норма Зима (л/100):</label>', '<label class="block text-blue-800 font-bold mb-1">❄️ Норма Зима с ноября (л/100):</label>')
-          sh = "function isSummerSeasonMonth(m) { const n = Number(m) || 9; return n >= 4 && n <= 10; }\n    function getSeasonalNormForMonth(prof, m) { const isSum = isSummerSeasonMonth(m); if (!prof) return isSum ? 16.8 : 18.7; return isSum ? (Number(prof.normSummer) || Number(prof.baseNorm) || 16.8) : (Number(prof.normWinter) || Number(prof.normSummer) || 18.7); }\n    function isWeekendDayObj(d) { return Boolean(d && (d.weekday === 'Сб' || d.weekday === 'Вс' || d.is_weekend_refuel)); }\n    function buildWeekendAzsRoundTripLegs(prof, d) { const base = (prof && prof.baseAddress) || 'ул. Базовая, 1', azs = (d && d.azs_addr) || 'АЗС Роснефть', t = ((d && d.azs_time) || '10:30').replace(':', '-'); return [{ from: base, to: azs, km: 3, dep: '09-00', arr: t }, { from: azs, to: base, km: 3, dep: t, arr: '11-30' }]; }\n    function enforceStrictFuelPhysics(prof, per)"
-          h = h.replace("function enforceStrictFuelPhysics(prof, per)", sh, 1)
-          h = h.replace("const baseNorm = Math.max(4, Math.min(45, Number(per.baseNorm) || Number(prof.normAutumn) || 16.8));", "const baseNorm = Math.max(4, Math.min(45, getSeasonalNormForMonth(prof, per.month))); per.baseNorm = baseNorm;")
-          h = h.replace("const baseNorm = Math.max(4, Math.min(45, Number(curPer.baseNorm) || Number(prof.normAutumn) || 16.8));", "const baseNorm = Math.max(4, Math.min(45, getSeasonalNormForMonth(prof, curPer.month))); curPer.baseNorm = baseNorm;")
-          h = h.replace("d.eff_norm = +(baseNorm * (1 + (frac * varPct) / 100)).toFixed(2);", "d.eff_norm = baseNorm; if (isWeekendDayObj(d) && Number(d.refueled) > 0) { d.excluded = false; d.legs = buildWeekendAzsRoundTripLegs(prof, d); }")
-          h = h.replace("editedDay.eff_norm = +(baseNorm * (1 + (fracE * varPct) / 100)).toFixed(2);", "editedDay.eff_norm = baseNorm;")
-          h = h.replace("d.city_km = d.legs.length > 0 ? Math.max(0, parseInt(d.legs[0].km, 10) || 0) : 0;", "d.city_km = d.km;")
-          h = h.replace("editedDay.city_km = editedDay.legs.length > 0 ? Math.max(1, parseInt(editedDay.legs[0].km, 10) || 1) : 0;", "editedDay.city_km = editedDay.km;")
-          h = h.replace("d.legs = buildChainForTargetKm(baseAddr, targetKm, workLocs, d.refueled > 0 ? d.azs_addr : null);", "d.legs = (isWeekendDayObj(d) && d.refueled > 0) ? buildWeekendAzsRoundTripLegs(prof, d) : buildChainForTargetKm(baseAddr, targetKm, workLocs, d.refueled > 0 ? d.azs_addr : null);")
-          h = h.replace("const isWinter = (month === 12 || month === 1 || month === 2);\n      const isSummer = (month >= 5 && month <= 8);\n      const defaultNorm = isWinter ? (prof.normWinter || 18.7) : (isSummer ? (prof.normSummer || 16.8) : (prof.normAutumn || 17.8));", "const defaultNorm = getSeasonalNormForMonth(prof, month);")
-          h = h.replace("city_km: 3,", "city_km: 6,").replace("city_km: 8,", "city_km: 12,").replace("eff_norm: curPer.baseNorm || prof.normAutumn || 16.8,", "eff_norm: getSeasonalNormForMonth(prof, curPer.month),")
-          h = h.replace("document.getElementById('dayStatKm').textContent = `${d.km} км (город: ${d.city_km} км)`;", "document.getElementById('dayStatKm').textContent = `${d.km} км (город: ${d.km} км)`;").replace("document.getElementById('footCityKm').textContent = d.city_km;", "document.getElementById('footCityKm').textContent = d.km;").replace("document.getElementById('drvDayKm').textContent = `${d.km} км (город: ${d.city_km} км)`;", "document.getElementById('drvDayKm').textContent = `${d.km} км (город: ${d.km} км)`;")
-          h = h.replace("document.getElementById('inputBaseNorm').value = curPer.baseNorm;", "curPer.baseNorm = getSeasonalNormForMonth(prof, curPer.month); enforceStrictFuelPhysics(prof, curPer); document.getElementById('inputBaseNorm').value = curPer.baseNorm; const _lS = document.getElementById('lblSeasonalBaseNorm'), _bS = document.getElementById('seasonModeBadgeBox'), _isSum = isSummerSeasonMonth(curPer.month); if (_lS) _lS.textContent = _isSum ? '☀️ Норма ЛЕТО — с апреля (л/100км):' : '❄️ Норма ЗИМА — с ноября (л/100км):'; if (_bS) _bS.textContent = (_isSum ? '☀️ ЛЕТО (Апр–Окт): ' : '❄️ ЗИМА (Ноя–Мар): ') + curPer.baseNorm + ' л/100 • Городской режим';")
-          h = h.replace("curPer.baseNorm = newNorm;", "if (isSummerSeasonMonth(curPer.month)) prof.normSummer = newNorm; else prof.normWinter = newNorm; curPer.baseNorm = newNorm;")
-          h = h.replace("Object.values(p.periods || {}).forEach(per => enforceStrictFuelPhysics(p, per));", "Object.values(p.periods || {}).forEach(per => { per.baseNorm = getSeasonalNormForMonth(p, per.month); rebalanceSinglePeriodObject(p, per); });")
-          h = h.replace("'25,7': dayObj ? dayObj.city_km : 0,", "'25,7': dayObj ? dayObj.km : 0,")
-          h = h.replace("let targetDay = per.days.find(d => d.date === rec.dateIso);\n          let transferNote = '';\n          if (!targetDay) {\n            targetDay = per.days.find(d => !d.excluded && d.date >= rec.dateIso)\n              || per.days.slice().reverse().find(d => !d.excluded && d.date <= rec.dateIso)\n              || per.days[0];\n            if (targetDay) {\n              transferNote = `Перенос с ${rec.dateRu} на ${targetDay.date_ru} (${rec.time})`;\n            }\n          }", "let targetDay = per.days.find(d => d.date === rec.dateIso); let transferNote = ''; if (!targetDay && rec.dateIso) { const dtW = new Date(rec.dateIso + 'T12:00:00'), wNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'], sNorm = getSeasonalNormForMonth(prof, per.month); targetDay = { date: rec.dateIso, date_ru: rec.dateRu, file_name: rec.dateRu.replace(/\\./g, ',') + '.xlsx', weekday: wNames[dtW.getDay()] || 'Сб', is_weekend_refuel: true, fuel_grade: rec.fuelGrade || prof.defaultFuelGrade || '92', start_tank: per.startTank || 20, refueled: 0, tank_before_refuel: null, tank_after_refuel: null, azs_addr: rec.azsAddr || '', azs_time: rec.time || '10:30', azs_note: '', km: 6, city_km: 6, eff_norm: sNorm, burned: +((6 * sNorm) / 100).toFixed(2), end_tank: per.startTank || 20, excluded: false, legs: buildWeekendAzsRoundTripLegs(prof, { azs_addr: rec.azsAddr, azs_time: rec.time }) }; per.days.push(targetDay); per.days.sort((a, b) => String(a.date).localeCompare(String(b.date))); }")
-          if "recNum_" not in h: h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>').replace('tbody.innerHTML = refuelRows.map(({ d, idx }) => {', 'tbody.innerHTML = refuelRows.map(({ d, idx }, rSeq) => { if (!d.receipt_num) d.receipt_num = String(rSeq + 1);').replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num}" oninput="d.receipt_num=this.value.trim()" class="w-16 border px-1 text-center font-bold" /></td><td><input type="text" id="recTime_${idx}"').replace('const elT = document.getElementById(`recTime_${idx}`);', 'const elN = document.getElementById(`recNum_${idx}`); if (elN) d.receipt_num = elN.value.trim(); const elT = document.getElementById(`recTime_${idx}`);')
-          ha, hb = h.split("function getFrontOverrides")
-          ha = ha.split("function fmtNumRu(")[0]
-          _, hc = hb.split("function getBackOverrides", 1)
-          jfn = "function fmtNumRu(v, d) { if (v === null || v === undefined || v === '') return ''; const n = Number(String(v).replace(',', '.')); if (!isFinite(n)) return String(v); const s = Math.abs(n).toFixed(typeof d === 'number' ? d : 2).replace('.', ','); return (n < 0 ? '-' : '') + s; }\n"
-          jfn += "    function getFrontOverrides(prof, dayObj) {\n"
-          jfn += "      const dStr = (dayObj && dayObj.date_ru) ? dayObj.date_ru : '01.09.2026', fg = String((dayObj && dayObj.fuel_grade) || (prof && prof.defaultFuelGrade) || '92'), refVal = dayObj ? Number(dayObj.refueled || 0) : 0, burnedNum = dayObj ? Number(dayObj.burned || 0) : 0;\n"
-          jfn += "      let recNo = ''; if (refVal > 0 && dayObj) { const days = typeof getCurrentMonthDays === 'function' ? getCurrentMonthDays() : [], dIdx = days.indexOf(dayObj), inp = dIdx >= 0 ? document.getElementById('recNum_' + dIdx) : null, seq = days.filter(x => Number(x.refueled) > 0).indexOf(dayObj); recNo = String((inp && inp.value.trim()) || dayObj.receipt_num || (seq >= 0 ? seq + 1 : 1)); dayObj.receipt_num = recNo; }\n"
-          jfn += "      return {'1,18': prof.waybillSeries || '', '1,22': (dayObj && dayObj.waybill_num) || prof.waybillNumberPrefix || '', '3,7': dStr, '3,13': dStr, '4,22': prof.okud || '0345001', '5,4': prof.orgFull || '', '5,22': prof.okpo || '',\n"
-          jfn += "        '8,5': prof.carModel || '', '9,8': prof.carPlate || '', '9,22': prof.garageNumber || '', '10,2': prof.driverFull || '', '10,22': prof.tabNumber || '', '12,5': prof.license || '', '12,20': prof.licenseClass || 'В', '13,6': prof.snils || '',\n"
-          jfn += "        '14,6': prof.transportInfo || 'перевозка для собственных нужд', '17,0': prof.medOrgPre || '', '28,0': prof.orgShort || '', '28,22': prof.mechanic || '', '34,23': prof.dispatcher || '', '37,22': prof.driverShort || '', '40,20': 'АИ', '40,24': fg, '41,10': dStr,\n"
-          jfn += "        '42,10': prof.depTimeDefault || '9-00', '44,9': prof.dispatcher || '', '47,10': dStr, '47,24': refVal > 0 ? fmtNumRu(refVal, 2) : '', '48,10': prof.arrTimeDefault || '18-00', '49,18': recNo, '50,9': prof.dispatcher || '',\n"
-          jfn += "        '50,24': (dayObj && dayObj.start_tank != null) ? fmtNumRu(dayObj.start_tank, 2) : '', '52,24': (dayObj && dayObj.end_tank != null) ? fmtNumRu(dayObj.end_tank, 2) : '', '54,24': burnedNum > 0 ? fmtNumRu(burnedNum, 2) : '', '55,24': burnedNum > 0 ? fmtNumRu(burnedNum, 2) : '',\n"
-          jfn += "        '62,22': prof.dispatcher || '', '67,9': prof.driverShort || '', '68,22': prof.driverShort || ''};\n    }\n\n    "
-          h = ha + jfn + "function getBackOverrides" + hc
-          hp.write_text(h, encoding="utf-8")
-          assert "7.0.1" not in s and "7.0.1" not in h and "Межсезонье (4–40" not in h and "Отклонение нормы (0–10 %)" not in h and "getSeasonalNormForMonth" in h and "buildWeekendAzsRoundTripLegs" in h
-          [pathlib.Path("_chk.js").write_text(sc, encoding="utf-8") or subprocess.run(["node", "--check", "_chk.js"], check=True) for sc in re.findall(r"<script[^>]*>(.*?)</script>", h, flags=re.S) if len(sc.strip()) > 10]
-          os.remove("_chk.js")
+
+          # 1. Проверка версии и сервера
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.0.5", "version.txt должен содержать 7.0.5"
           import server
-          assert server.APP_VERSION == "v7.0.5" and server.get_front_overrides({}, {"date_ru": "05.09.2026", "refueled": 30.0, "receipt_num": "1"})["49,18"] == "1"
+          assert server.APP_VERSION == "v7.0.5", "server.APP_VERSION должен быть v7.0.5"
+
+          # 2. Проверка синтаксиса JavaScript клиента
+          h = pathlib.Path("static/index.html").read_text(encoding="utf-8")
+          scripts = [sc for sc in re.findall(r"<script[^>]*>(.*?)</script>", h, flags=re.S) if len(sc.strip()) > 10]
+          pathlib.Path("_chk.js").write_text("\n;\n".join(scripts), encoding="utf-8")
+          subprocess.run(["node", "--check", "_chk.js"], check=True)
+          os.remove("_chk.js")
+          assert "getSeasonalNormForMonth" in h and "isSummerSeasonMonth" in h, "Отсутствует логика сезонных норм ГСМ"
+
+          # 3. Сборка десктоп-приложения для Windows
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_5.zip", "w", zipfile.ZIP_DEFLATED); [z1.write(f, os.path.basename(f)) for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]]; z1.close()
+
+          # 4. Формирование архивов релиза
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_5.zip", "w", zipfile.ZIP_DEFLATED)
+          for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]:
+              if os.path.exists(f):
+                  z1.write(f, os.path.basename(f))
+          z1.close()
+
           srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v7_0_5.zip", "w", zipfile.ZIP_DEFLATED); [z2.write(f, f) for f in srv_files if os.path.exists(f)]; z2.close()
-          os.makedirs("releases", exist_ok=True); shutil.copy2("putevka_server_v7_0_5.zip", "releases/putevka_server_v7_0_5.zip"); shutil.copy2("putevka_windows_desktop_app_v7_0_5.zip", "releases/putevka_windows_desktop_app_v7_0_5.zip")
+          z2 = zipfile.ZipFile("putevka_server_v7_0_5.zip", "w", zipfile.ZIP_DEFLATED)
+          for f in srv_files:
+              if os.path.exists(f):
+                  z2.write(f, f)
+          z2.close()
+
+          os.makedirs("releases", exist_ok=True)
+          shutil.copy2("putevka_server_v7_0_5.zip", "releases/putevka_server_v7_0_5.zip")
+          shutil.copy2("putevka_windows_desktop_app_v7_0_5.zip", "releases/putevka_windows_desktop_app_v7_0_5.zip")
+
+          # 5. Синхронизация собранных пакетов обратно в репозиторий
           subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
           subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
           subprocess.run(["git", "add", "-A"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync full v7.0.5 seasonal fuel and waybill generation logic to main [skip ci]"], check=False)
+          subprocess.run(["git", "commit", "-m", "Sync v7.0.5 release packages [skip ci]"], check=False)
           subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
+
+          # 6. Публикация релиза GitHub
           subprocess.run(["gh", "release", "delete", "v7.0.5", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.0.5", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_5.zip", "putevka_server_v7_0_5.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.0.5 — Двухсезонная логика ГСМ (Лето с апреля / Зима с ноября), 100% городской режим и генерация ПЛ", "--notes", "Полностью перенесена логика 2 сезонных норм (Лето с апреля по октябрь, Зима с ноября по март) с автопереключением по месяцам при генерации ПЛ, 100% городской режим, заправки в выходные дни (База-АЗС-База) и привязка номера заправочного листа к таблице чеков.", "--latest"], check=True):
-  contents: write
-jobs:
-  build-windows:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Build Verify Sync Main and Publish v7.0.4
-        shell: python
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          import pathlib, sys, os, re, subprocess, zipfile, shutil
-          sys.path.insert(0, os.getcwd())
-          subprocess.run(["git", "checkout", "55bbd62", "--", "server.py", "desktop_app.py", "static/index.html", "update.ps1", "update.sh", "data/app_data.json"], check=False)
-          subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
-          pathlib.Path("version.txt").write_text("7.0.4\n", encoding="utf-8")
-          [pathlib.Path(fn).write_text(re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", pathlib.Path(fn).read_text(encoding="utf-8")), encoding="utf-8") for fn in ["data/app_data.json", "data/putevka_db.json", "setup_and_run.sh", "update_on_server.sh", "update.sh", "PutevkaLauncher.cs", "README.md", "CHANGELOG.md"] if pathlib.Path(fn).exists()]
-          dp = pathlib.Path("desktop_app.py")
-          d = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", dp.read_text(encoding="utf-8"))
-          d = d.replace('if is_putevka_already_running(18080):', 'subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }"], creationflags=0x08000000, check=False); time.sleep(0.6)\n    if False:')
-          d = d.replace('if is_server_responding(DEFAULT_PORT):', 'subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }"], creationflags=0x08000000, check=False); time.sleep(0.6)\n    if False:')
-          d = d.replace("proc.wait()", "time.sleep(0.2)").replace("if ok and elapsed >= 4.0:", "if False:")
-          dp.write_text(d, encoding="utf-8")
-          ps_lines = [
-              '$ErrorActionPreference = "Continue"',
-              '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
-              '$Proto = "https" + "://"',
-              '$Repo = "MaksimTMB/putevka-rps"',
-              '$LatestExeUrl = $Proto + "github.com/" + $Repo + "/releases/latest/download/Putevka.exe"',
-              '$AppDir = Join-Path $env:LOCALAPPDATA "PutevkaApp"',
-              '$DataDir = Join-Path $AppDir "data"',
-              'New-Item -ItemType Directory -Path $DataDir -Force | Out-Null',
-              'Write-Host "=== АСУ ПУТЁВКА v7.0.4 - Прямое обновление из GitHub ===" -ForegroundColor Cyan',
-              '$CurDb = Join-Path $DataDir "putevka_db.json"',
-              'if (Test-Path $CurDb) { Copy-Item -LiteralPath $CurDb -Destination (Join-Path $DataDir "putevka_db.backup.json") -Force }',
-              'Get-Process -Name "Putevka*", "pythonw*", "python*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue',
-              'Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }',
-              'Start-Sleep -Milliseconds 700',
-              'Remove-Item -Path (Join-Path $AppDir "static") -Recurse -Force -ErrorAction SilentlyContinue',
-              '$TargetExe = Join-Path $AppDir "Putevka.exe"',
-              '$DesktopExe = Join-Path ([Environment]::GetFolderPath("Desktop")) "Putevka.exe"',
-              'Invoke-WebRequest -Uri $LatestExeUrl -OutFile $TargetExe -UseBasicParsing',
-              'Copy-Item -LiteralPath $TargetExe -Destination $DesktopExe -Force -ErrorAction SilentlyContinue',
-              'Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.0.4: $DesktopExe" -ForegroundColor Green',
-              'Start-Process -FilePath $TargetExe'
-          ]
-          pathlib.Path("update.ps1").write_text("\r\n".join(ps_lines) + "\r\n", encoding="utf-8")
-          sp = pathlib.Path("server.py")
-          s = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", sp.read_text(encoding="utf-8"))
-          s = s.replace("putevka_windows_desktop_app_v6_8.zip", "putevka_windows_desktop_app_v7_0_4.zip").replace("putevka_server_v6_8.zip", "putevka_server_v7_0_4.zip")
-          s = s.replace("round(km * (0.4 + random.random() * 0.25))", "km").replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0").replace("eff_norm = round(base_norm * (1 + season_pct / 100.0), 3)", "eff_norm = round(base_norm, 3)")
-          s = s.replace('days_list = payload.get("days", [])', 'days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]')
-          s = s.replace('    st["appVersion"] = target_ver', '    APP_VERSION = target_ver\n    st["appVersion"] = target_ver')
-          s = s.replace('if os.path.exists( os.path.join(cand, "index.html") ):', 'if os.path.exists(os.path.join(cand, "index.html")) and "7.0.4" in open(os.path.join(cand, "index.html"), "r", encoding="utf-8", errors="ignore").read(2500):')
-          s = s.replace('if path == "/api/state":', 'if path == "/api/update/apply": self._send_json(apply_github_update())\n            elif path == "/api/state":')
-          a, b = s.split("def get_front_overrides")
-          _, c = b.split("def get_back_overrides", 1)
-          fn = 'def get_front_overrides(prof: dict, day_obj: dict) -> dict:\n    d_str, fg, ref = day_obj.get("date_ru", ""), str(day_obj.get("fuel_grade") or prof.get("defaultFuelGrade") or "92"), float(day_obj.get("refueled") or 0)\n    return {\n'
-          fn += '        "1,18": prof.get("waybillSeries") or "", "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "", "3,7": d_str, "3,13": d_str, "4,22": prof.get("okud") or "0345001", "5,4": prof.get("orgFull") or "", "5,22": prof.get("okpo") or "",\n'
-          fn += '        "8,5": prof.get("carModel") or "", "9,8": prof.get("carPlate") or "", "9,22": prof.get("garageNumber") or "", "10,2": prof.get("driverFull") or "", "10,22": prof.get("tabNumber") or "", "12,5": prof.get("license") or "", "12,20": prof.get("licenseClass") or "В",\n'
-          fn += '        "13,6": prof.get("snils") or "", "14,6": prof.get("transportInfo") or "перевозка для собственных нужд", "17,0": prof.get("medOrgPre") or "", "28,0": prof.get("orgShort") or "", "28,22": prof.get("mechanic") or "", "34,23": prof.get("dispatcher") or "",\n'
-          fn += '        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str, "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str, "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",\n'
-          fn += '        "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "", "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "", "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""), "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),\n'
-          fn += '        "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""}\n\n'
-          s = a + fn + "def get_back_overrides" + c
-          sp.write_text(s, encoding="utf-8")
-          hp = pathlib.Path("static/index.html")
-          h = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", hp.read_text(encoding="utf-8"))
-          h = h.replace("const effNorm = +(baseNorm * (1 + seasonPct / 100)).toFixed(3);", "const effNorm = +baseNorm.toFixed(3);").replace("Math.round(km * (0.4 + Math.random() * 0.25))", "km").replace("Math.round(km * 0.55)", "km")
-          h = h.replace("const RAW_INIT =", "const _origF = window.fetch ? window.fetch.bind(window) : null; if (_origF && !window._fRet) { window._fRet = 1; window.fetch = async (u, o) => { for (let i = 0; i < 4; i++) { try { return await _origF(u, o); } catch (e) { if (i === 3) throw e; await new Promise(r => setTimeout(r, 350)); } } }; } const RAW_INIT =", 1)
-          if "recNum_" not in h: h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>').replace('tbody.innerHTML = refuelRows.map(({ d, idx }) => {', 'tbody.innerHTML = refuelRows.map(({ d, idx }, rSeq) => { if (!d.receipt_num) d.receipt_num = String(rSeq + 1);').replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num}" oninput="d.receipt_num=this.value.trim()" class="w-16 border px-1 text-center font-bold" /></td><td><input type="text" id="recTime_${idx}"').replace('const elT = document.getElementById(`recTime_${idx}`);', 'const elN = document.getElementById(`recNum_${idx}`); if (elN) d.receipt_num = elN.value.trim(); const elT = document.getElementById(`recTime_${idx}`);')
-          ha, hb = h.split("function getFrontOverrides")
-          ha = ha.split("function fmtNumRu(")[0]
-          _, hc = hb.split("function getBackOverrides", 1)
-          jfn = "function fmtNumRu(v, d) { if (v === null || v === undefined || v === '') return ''; const n = Number(String(v).replace(',', '.')); if (!isFinite(n)) return String(v); const s = Math.abs(n).toFixed(typeof d === 'number' ? d : 2).replace('.', ','); return (n < 0 ? '-' : '') + s; }\n"
-          jfn += "    function getFrontOverrides(prof, dayObj) {\n"
-          jfn += "      const dStr = (dayObj && dayObj.date_ru) ? dayObj.date_ru : '01.09.2026', fg = String((dayObj && dayObj.fuel_grade) || (prof && prof.defaultFuelGrade) || '92'), refVal = dayObj ? Number(dayObj.refueled || 0) : 0, burnedNum = dayObj ? Number(dayObj.burned || 0) : 0;\n"
-          jfn += "      let recNo = ''; if (refVal > 0 && dayObj) { const days = typeof getCurrentMonthDays === 'function' ? getCurrentMonthDays() : [], dIdx = days.indexOf(dayObj), inp = dIdx >= 0 ? document.getElementById('recNum_' + dIdx) : null, seq = days.filter(x => Number(x.refueled) > 0).indexOf(dayObj); recNo = String((inp && inp.value.trim()) || dayObj.receipt_num || (seq >= 0 ? seq + 1 : 1)); dayObj.receipt_num = recNo; }\n"
-          jfn += "      return {'1,18': prof.waybillSeries || '', '1,22': (dayObj && dayObj.waybill_num) || prof.waybillNumberPrefix || '', '3,7': dStr, '3,13': dStr, '4,22': prof.okud || '0345001', '5,4': prof.orgFull || '', '5,22': prof.okpo || '',\n"
-          jfn += "        '8,5': prof.carModel || '', '9,8': prof.carPlate || '', '9,22': prof.garageNumber || '', '10,2': prof.driverFull || '', '10,22': prof.tabNumber || '', '12,5': prof.license || '', '12,20': prof.licenseClass || 'В', '13,6': prof.snils || '',\n"
-          jfn += "        '14,6': prof.transportInfo || 'перевозка для собственных нужд', '17,0': prof.medOrgPre || '', '28,0': prof.orgShort || '', '28,22': prof.mechanic || '', '34,23': prof.dispatcher || '', '37,22': prof.driverShort || '', '40,20': 'АИ', '40,24': fg, '41,10': dStr,\n"
-          jfn += "        '42,10': prof.depTimeDefault || '9-00', '44,9': prof.dispatcher || '', '47,10': dStr, '47,24': refVal > 0 ? fmtNumRu(refVal, 2) : '', '48,10': prof.arrTimeDefault || '18-00', '49,18': recNo, '50,9': prof.dispatcher || '',\n"
-          jfn += "        '50,24': (dayObj && dayObj.start_tank != null) ? fmtNumRu(dayObj.start_tank, 2) : '', '52,24': (dayObj && dayObj.end_tank != null) ? fmtNumRu(dayObj.end_tank, 2) : '', '54,24': burnedNum > 0 ? fmtNumRu(burnedNum, 2) : '', '55,24': burnedNum > 0 ? fmtNumRu(burnedNum, 2) : '',\n"
-          jfn += "        '62,22': prof.dispatcher || '', '67,9': prof.driverShort || '', '68,22': prof.driverShort || ''};\n    }\n\n    "
-          h = ha + jfn + "function getBackOverrides" + hc
-          hp.write_text(h, encoding="utf-8")
-          assert "7.0.1" not in s and "7.0.1" not in h and "7.0.1" not in d and 'APP_VERSION = "v7.0.4"' in s and "ПУТЁВКА v7.0.4" in h
-          [pathlib.Path("_chk.js").write_text(sc, encoding="utf-8") or subprocess.run(["node", "--check", "_chk.js"], check=True) for sc in re.findall(r"<script[^>]*>(.*?)</script>", h, flags=re.S) if len(sc.strip()) > 10]
-          os.remove("_chk.js")
-          import server
-          assert server.APP_VERSION == "v7.0.4" and server.get_front_overrides({}, {"date_ru": "05.09.2026", "refueled": 30.0, "receipt_num": "1"})["49,18"] == "1"
-          subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_4.zip", "w", zipfile.ZIP_DEFLATED); [z1.write(f, os.path.basename(f)) for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]]; z1.close()
-          srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v7_0_4.zip", "w", zipfile.ZIP_DEFLATED); [z2.write(f, f) for f in srv_files if os.path.exists(f)]; z2.close()
-          os.makedirs("releases", exist_ok=True); shutil.copy2("putevka_server_v7_0_4.zip", "releases/putevka_server_v7_0_4.zip"); shutil.copy2("putevka_windows_desktop_app_v7_0_4.zip", "releases/putevka_windows_desktop_app_v7_0_4.zip")
-          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-          subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
-          subprocess.run(["git", "add", "-A"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync verified v7.0.4 (zero 7.0.1 strings) to main [skip ci]"], check=False)
-          subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
-          subprocess.run(["gh", "release", "delete", "v7.0.4", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.0.4", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_4.zip", "putevka_server_v7_0_4.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.0.4 — Проверенная сборка (APP_VERSION=v7.0.4, node --check, десктоп и сервер)", "--notes", "Полностью заменены все вхождения 7.0.1 на 7.0.4 в server.py, static/index.html и desktop_app.py (проверено через assert и node --check), синхронизированы серверный и десктопный пакеты v7.0.4.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "create", "v7.0.5", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_5.zip", "putevka_server_v7_0_5.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.0.5 — Двухсезонные нормы ГСМ (Лето/Зима)", "--notes", "Нормы расхода ГСМ задаются только в карточке профиля водителя (Лето апрель–октябрь / Зима ноябрь–март) с автопереключением по месяцу. В «Настройке шапки» и в генераторе нормы теперь только показываются. Удалены «Межсезонье» и ручные «Базовая норма»/«Отклонение нормы».", "--latest"], check=True)
