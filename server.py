@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.1.1"
+APP_VERSION = "v7.1.2"
 
-app = FastAPI(title="ПУТЁВКА v7.1.1 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.1.2 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1028,12 +1028,11 @@ def _replace_windows_exe():
             content = r.read()
         with open(new_path, "wb") as f:
             f.write(content)
-        pid = os.getpid()
         bat = exe_path + ".update.bat"
         with open(bat, "w", encoding="utf-8") as f:
             f.write("@echo off\r\n")
             f.write("timeout /t 2 /nobreak >nul\r\n")
-            f.write(f"taskkill /F /PID {pid} >nul 2>&1\r\n")
+            f.write(f"taskkill /F /IM Putevka.exe >nul 2>&1\r\n")
             f.write("timeout /t 1 /nobreak >nul\r\n")
             f.write(f'move /Y "{new_path}" "{exe_path}" >nul\r\n')
             f.write(f'start "" "{exe_path}"\r\n')
