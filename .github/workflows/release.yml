@@ -22,8 +22,7 @@ jobs:
         run: |
           import pathlib, sys, os, re, subprocess, zipfile, shutil
           sys.path.insert(0, os.getcwd())
-          root_sha = subprocess.check_output(["git", "rev-list", "--max-parents=0", "HEAD"]).decode().strip().splitlines()[0]
-          subprocess.run(["git", "checkout", root_sha, "--", "server.py", "desktop_app.py", "static/index.html", "update.ps1", "update.sh", "data/app_data.json", "data/putevka_db.json"], check=True)
+          subprocess.run(["git", "checkout", "55bbd62", "--", "server.py", "desktop_app.py", "static/index.html", "update.ps1", "update.sh", "data/app_data.json", "data/putevka_db.json"], check=True)
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
           pathlib.Path("version.txt").write_text("7.0.4\n", encoding="utf-8")
           [pathlib.Path(fn).write_text(pathlib.Path(fn).read_text(encoding="utf-8").replace("6.7.0", "7.0.4").replace("6.8.0", "7.0.4"), encoding="utf-8") for fn in ["data/app_data.json", "data/putevka_db.json", "setup_and_run.sh", "update_on_server.sh", "update.sh", "PutevkaLauncher.cs", "README.md", "CHANGELOG.md"] if pathlib.Path(fn).exists()]
