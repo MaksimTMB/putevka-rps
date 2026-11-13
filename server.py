@@ -9,9 +9,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.0.3"
+APP_VERSION = "v7.0.1"
 
-app = FastAPI(title="ПУТЁВКА v7.0.3 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.0.1 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -939,7 +939,7 @@ def export_docx(payload: dict = Body(...)):
     st = load_valid_state()
     schema = st.get("xls_schema")
     prof = payload.get("profile")
-    days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]; [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]
+    days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]
     file_name = payload.get("fileName") or "putevoy_list.docx"
     if not prof or not days_list or not schema:
         raise HTTPException(status_code=400, detail="Недостаточно данных для генерации документа Word")
@@ -957,7 +957,7 @@ def export_xlsx(payload: dict = Body(...)):
     st = load_valid_state()
     schema = st.get("xls_schema")
     prof = payload.get("profile")
-    days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]; [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]
+    days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]
     file_name = payload.get("fileName") or "putevoy_list.xlsx"
     if not prof or not days_list or not schema:
         raise HTTPException(status_code=400, detail="Недостаточно данных для генерации документа Excel")
@@ -978,7 +978,7 @@ if __name__ == "__main__":
 
 @app.get('/api/update/check')
 def api_upd_check():
-    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.3','updateAvailable':False}
+    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.1','updateAvailable':False}
 @app.post('/api/update/apply')
 def api_upd_apply():
-    return {'status':'ok','updatedTo':'v7.0.3','message':'Обновлено из GitHub с сохранением БД'}
+    return {'status':'ok','updatedTo':'v7.0.1','message':'Обновлено из GitHub с сохранением БД'}
