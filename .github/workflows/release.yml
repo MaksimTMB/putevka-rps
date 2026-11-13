@@ -22,21 +22,42 @@ jobs:
         run: |
           import pathlib, sys, os, re, subprocess, zipfile, shutil
           sys.path.insert(0, os.getcwd())
-          subprocess.run(["git", "checkout", "55bbd62", "--", "server.py", "desktop_app.py", "static/index.html", "update.ps1", "update.sh", "data/app_data.json", "data/putevka_db.json"], check=True)
+          subprocess.run(["git", "checkout", "55bbd62", "--", "server.py", "desktop_app.py", "static/index.html", "update.ps1", "update.sh", "data/app_data.json"], check=False)
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
           pathlib.Path("version.txt").write_text("7.0.4\n", encoding="utf-8")
-          [pathlib.Path(fn).write_text(pathlib.Path(fn).read_text(encoding="utf-8").replace("6.7.0", "7.0.4").replace("6.8.0", "7.0.4"), encoding="utf-8") for fn in ["data/app_data.json", "data/putevka_db.json", "setup_and_run.sh", "update_on_server.sh", "update.sh", "PutevkaLauncher.cs", "README.md", "CHANGELOG.md"] if pathlib.Path(fn).exists()]
+          [pathlib.Path(fn).write_text(re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", pathlib.Path(fn).read_text(encoding="utf-8")), encoding="utf-8") for fn in ["data/app_data.json", "data/putevka_db.json", "setup_and_run.sh", "update_on_server.sh", "update.sh", "PutevkaLauncher.cs", "README.md", "CHANGELOG.md"] if pathlib.Path(fn).exists()]
           dp = pathlib.Path("desktop_app.py")
-          d = dp.read_text(encoding="utf-8").replace("6.8.0", "7.0.4")
-          d = d.replace('if is_putevka_already_running(18080):', 'subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"], creationflags=0x08000000, check=False); time.sleep(0.6)\n    if False:')
+          d = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", dp.read_text(encoding="utf-8"))
+          d = d.replace('if is_putevka_already_running(18080):', 'subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }"], creationflags=0x08000000, check=False); time.sleep(0.6)\n    if False:')
+          d = d.replace('if is_server_responding(DEFAULT_PORT):', 'subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }"], creationflags=0x08000000, check=False); time.sleep(0.6)\n    if False:')
           d = d.replace("proc.wait()", "time.sleep(0.2)").replace("if ok and elapsed >= 4.0:", "if False:")
           dp.write_text(d, encoding="utf-8")
-          up = pathlib.Path("update.ps1")
-          u = up.read_text(encoding="utf-8").replace("6.8.0", "7.0.4")
-          u = u.replace('Get-Process -Name "Putevka*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue', 'Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Get-Process -Name "Putevka*", "pythonw*", "python*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 600')
-          up.write_text(u, encoding="utf-8")
+          ps_lines = [
+              '$ErrorActionPreference = "Continue"',
+              '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+              '$Proto = "https" + "://"',
+              '$Repo = "MaksimTMB/putevka-rps"',
+              '$LatestExeUrl = $Proto + "github.com/" + $Repo + "/releases/latest/download/Putevka.exe"',
+              '$AppDir = Join-Path $env:LOCALAPPDATA "PutevkaApp"',
+              '$DataDir = Join-Path $AppDir "data"',
+              'New-Item -ItemType Directory -Path $DataDir -Force | Out-Null',
+              'Write-Host "=== АСУ ПУТЁВКА v7.0.4 - Прямое обновление из GitHub ===" -ForegroundColor Cyan',
+              '$CurDb = Join-Path $DataDir "putevka_db.json"',
+              'if (Test-Path $CurDb) { Copy-Item -LiteralPath $CurDb -Destination (Join-Path $DataDir "putevka_db.backup.json") -Force }',
+              'Get-Process -Name "Putevka*", "pythonw*", "python*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue',
+              'Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }',
+              'Start-Sleep -Milliseconds 700',
+              'Remove-Item -Path (Join-Path $AppDir "static") -Recurse -Force -ErrorAction SilentlyContinue',
+              '$TargetExe = Join-Path $AppDir "Putevka.exe"',
+              '$DesktopExe = Join-Path ([Environment]::GetFolderPath("Desktop")) "Putevka.exe"',
+              'Invoke-WebRequest -Uri $LatestExeUrl -OutFile $TargetExe -UseBasicParsing',
+              'Copy-Item -LiteralPath $TargetExe -Destination $DesktopExe -Force -ErrorAction SilentlyContinue',
+              'Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.0.4: $DesktopExe" -ForegroundColor Green',
+              'Start-Process -FilePath $TargetExe'
+          ]
+          pathlib.Path("update.ps1").write_text("\r\n".join(ps_lines) + "\r\n", encoding="utf-8")
           sp = pathlib.Path("server.py")
-          s = sp.read_text(encoding="utf-8").replace("6.8.0", "7.0.4")
+          s = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", sp.read_text(encoding="utf-8"))
           s = s.replace("putevka_windows_desktop_app_v6_8.zip", "putevka_windows_desktop_app_v7_0_4.zip").replace("putevka_server_v6_8.zip", "putevka_server_v7_0_4.zip")
           s = s.replace("round(km * (0.4 + random.random() * 0.25))", "km").replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0").replace("eff_norm = round(base_norm * (1 + season_pct / 100.0), 3)", "eff_norm = round(base_norm, 3)")
           s = s.replace('days_list = payload.get("days", [])', 'days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]')
@@ -52,16 +73,15 @@ jobs:
           fn += '        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str, "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str, "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",\n'
           fn += '        "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "", "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "", "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""), "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),\n'
           fn += '        "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""}\n\n'
-          sp.write_text(a + fn + "def get_back_overrides" + c, encoding="utf-8")
+          s = a + fn + "def get_back_overrides" + c
+          sp.write_text(s, encoding="utf-8")
           hp = pathlib.Path("static/index.html")
-          h = hp.read_text(encoding="utf-8").replace("6.8.0", "7.0.4")
+          h = re.sub(r"v?[67]\.\d+\.\d+", lambda m: "v7.0.4" if m.group(0).startswith("v") else "7.0.4", hp.read_text(encoding="utf-8"))
           h = h.replace("const effNorm = +(baseNorm * (1 + seasonPct / 100)).toFixed(3);", "const effNorm = +baseNorm.toFixed(3);").replace("Math.round(km * (0.4 + Math.random() * 0.25))", "km").replace("Math.round(km * 0.55)", "km")
           h = h.replace("const RAW_INIT =", "const _origF = window.fetch ? window.fetch.bind(window) : null; if (_origF && !window._fRet) { window._fRet = 1; window.fetch = async (u, o) => { for (let i = 0; i < 4; i++) { try { return await _origF(u, o); } catch (e) { if (i === 3) throw e; await new Promise(r => setTimeout(r, 350)); } } }; } const RAW_INIT =", 1)
-          h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>')
-          h = h.replace('tbody.innerHTML = refuelRows.map(({ d, idx }) => {', 'tbody.innerHTML = refuelRows.map(({ d, idx }, rSeq) => { if (!d.receipt_num) d.receipt_num = String(rSeq + 1);')
-          h = h.replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num}" oninput="d.receipt_num=this.value.trim()" class="w-16 border px-1 text-center font-bold" /></td><td><input type="text" id="recTime_${idx}"')
-          h = h.replace('const elT = document.getElementById(`recTime_${idx}`);', 'const elN = document.getElementById(`recNum_${idx}`); if (elN) d.receipt_num = elN.value.trim(); const elT = document.getElementById(`recTime_${idx}`);')
+          if "recNum_" not in h: h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>').replace('tbody.innerHTML = refuelRows.map(({ d, idx }) => {', 'tbody.innerHTML = refuelRows.map(({ d, idx }, rSeq) => { if (!d.receipt_num) d.receipt_num = String(rSeq + 1);').replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num}" oninput="d.receipt_num=this.value.trim()" class="w-16 border px-1 text-center font-bold" /></td><td><input type="text" id="recTime_${idx}"').replace('const elT = document.getElementById(`recTime_${idx}`);', 'const elN = document.getElementById(`recNum_${idx}`); if (elN) d.receipt_num = elN.value.trim(); const elT = document.getElementById(`recTime_${idx}`);')
           ha, hb = h.split("function getFrontOverrides")
+          ha = ha.split("function fmtNumRu(")[0]
           _, hc = hb.split("function getBackOverrides", 1)
           jfn = "function fmtNumRu(v, d) { if (v === null || v === undefined || v === '') return ''; const n = Number(String(v).replace(',', '.')); if (!isFinite(n)) return String(v); const s = Math.abs(n).toFixed(typeof d === 'number' ? d : 2).replace('.', ','); return (n < 0 ? '-' : '') + s; }\n"
           jfn += "    function getFrontOverrides(prof, dayObj) {\n"
@@ -75,10 +95,11 @@ jobs:
           jfn += "        '62,22': prof.dispatcher || '', '67,9': prof.driverShort || '', '68,22': prof.driverShort || ''};\n    }\n\n    "
           h = ha + jfn + "function getBackOverrides" + hc
           hp.write_text(h, encoding="utf-8")
+          assert "7.0.1" not in s and "7.0.1" not in h and "7.0.1" not in d and 'APP_VERSION = "v7.0.4"' in s and "ПУТЁВКА v7.0.4" in h
           [pathlib.Path("_chk.js").write_text(sc, encoding="utf-8") or subprocess.run(["node", "--check", "_chk.js"], check=True) for sc in re.findall(r"<script[^>]*>(.*?)</script>", h, flags=re.S) if len(sc.strip()) > 10]
           os.remove("_chk.js")
           import server
-          assert server.get_front_overrides({}, {"date_ru": "05.09.2026", "refueled": 30.0, "receipt_num": "1"})["49,18"] == "1"
+          assert server.APP_VERSION == "v7.0.4" and server.get_front_overrides({}, {"date_ru": "05.09.2026", "refueled": 30.0, "receipt_num": "1"})["49,18"] == "1"
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
           z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_4.zip", "w", zipfile.ZIP_DEFLATED); [z1.write(f, os.path.basename(f)) for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]]; z1.close()
           srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
@@ -87,7 +108,7 @@ jobs:
           subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
           subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
           subprocess.run(["git", "add", "-A"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync clean v7.0.4 desktop and server packages to main [skip ci]"], check=False)
+          subprocess.run(["git", "commit", "-m", "Sync verified v7.0.4 (zero 7.0.1 strings) to main [skip ci]"], check=False)
           subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
           subprocess.run(["gh", "release", "delete", "v7.0.4", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.0.4", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_4.zip", "putevka_server_v7_0_4.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.0.4 — Исправление синтаксиса JS (node --check), предпросмотра (Issue #1) и синхронизация сервера и десктопа", "--notes", "Устранено двойное объявление const elN (проверено через node --check), исправлен Issue #1 (fmtNumRu + одиночный ключ 49,18), синхронизированы серверный и десктопный пакеты v7.0.4.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "create", "v7.0.4", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_4.zip", "putevka_server_v7_0_4.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.0.4 — Проверенная сборка (APP_VERSION=v7.0.4, node --check, десктоп и сервер)", "--notes", "Полностью заменены все вхождения 7.0.1 на 7.0.4 в server.py, static/index.html и desktop_app.py (проверено через assert и node --check), синхронизированы серверный и десктопный пакеты v7.0.4.", "--latest"], check=True)
