@@ -6421,5 +6421,27 @@
       initAuthFlowOnStartup();
     });
   </script>
-<script>async function runGitHubAutoUpdate(){if(!confirm("Проверить и установить последнее обновление из GitHub (MaksimTMB/putevka-rps) с сохранением рабочей БД?"))return;try{const r=await fetch("/api/update/apply",{method:"POST"});const d=await r.json();alert(d.message||"Обновлено до "+(d.updatedTo||"v7.0.5"));location.reload();}catch(e){alert("Ошибка обновления: "+e.message);}}</script></body>
+<script>
+async function runGitHubAutoUpdate(){
+  let prompt = "Проверить и установить последнее обновление из GitHub (MaksimTMB/putevka-rps) с сохранением рабочей БД?";
+  try {
+    const c = await fetch("/api/update/check");
+    const cd = await c.json();
+    if (cd.updateAvailable) {
+      prompt = "Доступна новая версия " + (cd.latestVersion||"") + " (у вас " + (cd.currentVersion||"") + "). Обновить сейчас? Рабочая база будет сохранена.";
+    } else {
+      prompt = "У вас актуальная версия " + (cd.currentVersion||"") + ". Всё равно переустановить файлы из GitHub (база сохранится)?";
+    }
+  } catch(e) {}
+  if (!confirm(prompt)) return;
+  try {
+    const r = await fetch("/api/update/apply",{method:"POST"});
+    const d = await r.json();
+    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.0.5")));
+    location.reload();
+  } catch(e) {
+    alert("Ошибка обновления: " + e.message);
+  }
+}
+</script></body>
 </html>

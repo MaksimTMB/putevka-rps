@@ -1,7 +1,7 @@
 import os, sys
 if sys.stdout is None: sys.stdout = open(os.devnull, 'w', encoding='utf-8')
 if sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')
-import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse
+import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse, urllib.request
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -976,9 +976,71 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8080)
 
+UPDATE_REPO = "MaksimTMB/putevka-rps"
+UPDATE_FILES = ["version.txt", "server.py", "desktop_app.py", "requirements.txt", "static/index.html", "data/app_data.json"]
+
+
+def _version_tuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", str(v))[:3])
+
+
+def _fetch_latest_release():
+    try:
+        req = urllib.request.Request(
+            f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest",
+            headers={"User-Agent": "PutevkaUpdater/1.0", "Accept": "application/vnd.github+json"},
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return str(json.load(r).get("tag_name") or APP_VERSION)
+    except Exception:
+        return APP_VERSION
+
+
 @app.get('/api/update/check')
 def api_upd_check():
-    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.5','updateAvailable':False}
+    latest = _fetch_latest_release()
+    update_available = _version_tuple(latest) > _version_tuple(APP_VERSION)
+    return {'status': 'ok', 'currentVersion': APP_VERSION, 'latestVersion': latest, 'updateAvailable': update_available}
+
+
 @app.post('/api/update/apply')
 def api_upd_apply():
-    return {'status':'ok','updatedTo':'v7.0.5','message':'Обновлено из GitHub с сохранением БД'}
+    latest = _fetch_latest_release()
+    if os.path.exists(DB_FILE):
+        try:
+            shutil.copy2(DB_FILE, DB_FILE + ".backup.json")
+        except Exception:
+            pass
+
+    updated, failed = [], []
+    for rel in UPDATE_FILES:
+        url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/{rel}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "PutevkaUpdater/1.0"})
+            with urllib.request.urlopen(req, timeout=25) as r:
+                data = r.read()
+            dest = os.path.join(BASE_DIR, rel)
+            parent = os.path.dirname(dest)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(dest, "wb") as f:
+                f.write(data)
+            updated.append(rel)
+        except Exception:
+            failed.append(rel)
+
+    if updated:
+        return {
+            'status': 'ok',
+            'updatedTo': latest,
+            'updated': updated,
+            'failed': failed,
+            'message': f'Обновлено файлов: {len(updated)}. Перезапустите приложение (или сервер), чтобы изменения вступили в силу. Рабочая база сохранена.',
+        }
+    return {
+        'status': 'error',
+        'updatedTo': APP_VERSION,
+        'updated': [],
+        'failed': failed,
+        'message': 'Не удалось загрузить обновление. Проверьте доступ к интернету.',
+    }
