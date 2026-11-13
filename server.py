@@ -2,6 +2,7 @@ import os, sys
 if sys.stdout is None: sys.stdout = open(os.devnull, 'w', encoding='utf-8')
 if sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')
 import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse, urllib.request
+import subprocess, threading, time
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.0.5"
+APP_VERSION = "v7.1.0"
 
-app = FastAPI(title="ПУТЁВКА v7.0.5 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.1.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -21,8 +22,12 @@ else:
     BUNDLE_DIR = os.path.dirname(os.path.abspath(__file__))
     BASE_DIR = BUNDLE_DIR
 
+IS_FROZEN = getattr(sys, "frozen", False)
+
 DATA_DIR = os.path.join(BASE_DIR, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
+DOCS_DIR = os.path.join(DATA_DIR, "documents")
+os.makedirs(DOCS_DIR, exist_ok=True)
 DB_FILE = os.path.join(DATA_DIR, "putevka_db.json")
 INIT_FILE = os.path.join(DATA_DIR, "app_data.json")
 if not os.path.exists(INIT_FILE) and os.path.exists(os.path.join(BUNDLE_DIR, "data", "app_data.json")):
@@ -1003,6 +1008,42 @@ def api_upd_check():
     return {'status': 'ok', 'currentVersion': APP_VERSION, 'latestVersion': latest, 'updateAvailable': update_available}
 
 
+def _schedule_server_restart():
+    def _restart():
+        time.sleep(1.2)
+        try:
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        except Exception:
+            pass
+    threading.Thread(target=_restart, daemon=True).start()
+
+
+def _replace_windows_exe():
+    try:
+        exe_path = sys.executable
+        new_path = exe_path + ".new"
+        url = f"https://github.com/{UPDATE_REPO}/releases/latest/download/Putevka.exe"
+        req = urllib.request.Request(url, headers={"User-Agent": "PutevkaUpdater/1.0"})
+        with urllib.request.urlopen(req, timeout=180) as r:
+            content = r.read()
+        with open(new_path, "wb") as f:
+            f.write(content)
+        pid = os.getpid()
+        bat = exe_path + ".update.bat"
+        with open(bat, "w", encoding="utf-8") as f:
+            f.write("@echo off\r\n")
+            f.write("timeout /t 2 /nobreak >nul\r\n")
+            f.write(f"taskkill /F /PID {pid} >nul 2>&1\r\n")
+            f.write("timeout /t 1 /nobreak >nul\r\n")
+            f.write(f'move /Y "{new_path}" "{exe_path}" >nul\r\n')
+            f.write(f'start "" "{exe_path}"\r\n')
+            f.write('del "%~f0"\r\n')
+        subprocess.Popen(["cmd", "/c", bat], creationflags=0x00000008, close_fds=True)
+        return True
+    except Exception:
+        return False
+
+
 @app.post('/api/update/apply')
 def api_upd_apply():
     latest = _fetch_latest_release()
@@ -1030,12 +1071,21 @@ def api_upd_apply():
             failed.append(rel)
 
     if updated:
+        message = f'Обновлено файлов: {len(updated)}.'
+        if IS_FROZEN:
+            if _replace_windows_exe():
+                message += ' Скачан новый exe. Приложение сейчас перезапустится с новой версией.'
+            else:
+                message += ' Перезапустите приложение, чтобы изменения вступили в силу. Рабочая база сохранена.'
+        else:
+            _schedule_server_restart()
+            message += ' Сервер перезапускается с новой версией. Рабочая база сохранена.'
         return {
             'status': 'ok',
             'updatedTo': latest,
             'updated': updated,
             'failed': failed,
-            'message': f'Обновлено файлов: {len(updated)}. Перезапустите приложение (или сервер), чтобы изменения вступили в силу. Рабочая база сохранена.',
+            'message': message,
         }
     return {
         'status': 'error',
@@ -1044,3 +1094,61 @@ def api_upd_apply():
         'failed': failed,
         'message': 'Не удалось загрузить обновление. Проверьте доступ к интернету.',
     }
+
+
+@app.post("/api/documents/upload")
+def documents_upload(payload: dict = Body(...)):
+    filename = str(payload.get("fileName") or "document").strip()
+    b64 = str(payload.get("contentBase64") or "").strip()
+    doc_type = str(payload.get("type") or "document")
+    profile_id = str(payload.get("profileId") or "")
+    period_key = str(payload.get("periodKey") or "")
+    if not b64:
+        raise HTTPException(status_code=400, detail="Пустой файл")
+    try:
+        raw = base64.b64decode(b64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Некорректное содержимое файла")
+
+    safe_name = re.sub(r'[^\w.\-]+', '_', filename) or "document"
+    safe_name = safe_name[:80]
+    ext = os.path.splitext(safe_name)[1].lower() or ".bin"
+    doc_id = "doc_" + datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(int(time.time() * 1000) % 10000)
+    stored_name = doc_id + ext
+    path = os.path.join(DOCS_DIR, stored_name)
+    with open(path, "wb") as f:
+        f.write(raw)
+
+    meta = {
+        "id": doc_id,
+        "fileName": filename,
+        "type": doc_type,
+        "profileId": profile_id,
+        "periodKey": period_key,
+        "storedName": stored_name,
+        "size": len(raw),
+        "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    return {"status": "ok", "document": meta}
+
+
+@app.get("/api/documents/download/{stored_name}")
+def documents_download(stored_name: str):
+    safe = os.path.basename(stored_name)
+    path = os.path.join(DOCS_DIR, safe)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    return FileResponse(path, filename=safe)
+
+
+@app.post("/api/documents/delete")
+def documents_delete(payload: dict = Body(...)):
+    stored_name = str(payload.get("storedName") or "")
+    safe = os.path.basename(stored_name)
+    path = os.path.join(DOCS_DIR, safe)
+    if os.path.exists(path):
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+    return {"status": "ok"}
