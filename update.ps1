@@ -14,7 +14,7 @@ $DataDir = Join-Path $AppDir "data"
 
 New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
 
-Write-Host "=== АСУ ПУТЁВКА v7.1.0 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
+Write-Host "=== АСУ ПУТЁВКА v7.1.1 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
 
 $CurDb = Join-Path $DataDir "putevka_db.json"
 
@@ -36,7 +36,7 @@ Invoke-WebRequest -Uri $LatestExeUrl -OutFile $TargetExe -UseBasicParsing
 
 Copy-Item -LiteralPath $TargetExe -Destination $DesktopExe -Force -ErrorAction SilentlyContinue
 
-Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.1.0: $DesktopExe" -ForegroundColor Green
+Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.1.1: $DesktopExe" -ForegroundColor Green
 
 Start-Process -FilePath $TargetExe
 
