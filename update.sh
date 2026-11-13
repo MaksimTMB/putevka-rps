@@ -4,7 +4,7 @@ PROTO="https""://"
 REPO="MaksimTMB/putevka-rps"
 RAW_BASE="${PROTO}raw.githubusercontent.com/${REPO}/main"
 APP_DIR="${PUTEVKA_DIR:-$(pwd)}"
-echo "=== АСУ ПУТЁВКА v7.0.4 - Прямое обновление с GitHub ==="
+echo "=== АСУ ПУТЁВКА v7.0.5 - Прямое обновление с GitHub ==="
 mkdir -p "$APP_DIR/data" "$APP_DIR/static" "$APP_DIR/templates_xls"
 if [ -f "$APP_DIR/data/putevka_db.json" ]; then
     cp -f "$APP_DIR/data/putevka_db.json" "$APP_DIR/data/putevka_db.backup.json"

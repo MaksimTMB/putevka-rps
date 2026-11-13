@@ -6,7 +6,7 @@ $LatestExeUrl = $Proto + "github.com/" + $Repo + "/releases/latest/download/Pute
 $AppDir = Join-Path $env:LOCALAPPDATA "PutevkaApp"
 $DataDir = Join-Path $AppDir "data"
 New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
-Write-Host "=== АСУ ПУТЁВКА v7.0.4 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
+Write-Host "=== АСУ ПУТЁВКА v7.0.5 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
 $CurDb = Join-Path $DataDir "putevka_db.json"
 if (Test-Path $CurDb) { Copy-Item -LiteralPath $CurDb -Destination (Join-Path $DataDir "putevka_db.backup.json") -Force }
 Get-Process -Name "Putevka*", "pythonw*", "python*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
@@ -17,5 +17,5 @@ $TargetExe = Join-Path $AppDir "Putevka.exe"
 $DesktopExe = Join-Path ([Environment]::GetFolderPath("Desktop")) "Putevka.exe"
 Invoke-WebRequest -Uri $LatestExeUrl -OutFile $TargetExe -UseBasicParsing
 Copy-Item -LiteralPath $TargetExe -Destination $DesktopExe -Force -ErrorAction SilentlyContinue
-Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.0.4: $DesktopExe" -ForegroundColor Green
+Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.0.5: $DesktopExe" -ForegroundColor Green
 Start-Process -FilePath $TargetExe
