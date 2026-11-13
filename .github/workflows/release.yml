@@ -1,4 +1,4 @@
-name: Build and Release v7.0.2
+name: Build and Release v7.0.3
 on:
   push:
     branches: [ main ]
@@ -15,70 +15,80 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify Sync Main and Publish v7.0.2
+      - name: Build Verify Sync Main and Publish v7.0.3
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          import pathlib, sys, os, subprocess, zipfile
+          import pathlib, sys, os, subprocess, zipfile, shutil
           sys.path.insert(0, os.getcwd())
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
-          pathlib.Path("version.txt").write_text("7.0.2\n", encoding="utf-8")
-          pathlib.Path("data/app_data.json").write_text(pathlib.Path("data/app_data.json").read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2"), encoding="utf-8")
-          pathlib.Path("data/putevka_db.json").write_text(pathlib.Path("data/putevka_db.json").read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2"), encoding="utf-8")
+          pathlib.Path("version.txt").write_text("7.0.3\n", encoding="utf-8")
+          [pathlib.Path(fn).write_text(pathlib.Path(fn).read_text(encoding="utf-8").replace("6.7.0", "7.0.3").replace("6.8.0", "7.0.3").replace("6.9.0", "7.0.3").replace("7.0.0", "7.0.3").replace("7.0.1", "7.0.3").replace("7.0.2", "7.0.3"), encoding="utf-8") for fn in ["data/app_data.json", "data/putevka_db.json", "setup_and_run.sh", "update_on_server.sh", "update.sh", "PutevkaLauncher.cs", "README.md", "CHANGELOG.md"] if pathlib.Path(fn).exists()]
+          dp = pathlib.Path("desktop_app.py")
+          d = dp.read_text(encoding="utf-8").replace("6.8.0", "7.0.3").replace("6.9.0", "7.0.3").replace("7.0.0", "7.0.3").replace("7.0.1", "7.0.3").replace("7.0.2", "7.0.3")
+          d = d.replace('if is_putevka_already_running(18080):', 'subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }"], creationflags=0x08000000, check=False); time.sleep(0.6)\n    if False:')
+          d = d.replace("proc.wait()", "time.sleep(0.2)").replace("if ok and elapsed >= 4.0:", "if False:")
+          dp.write_text(d, encoding="utf-8")
+          up = pathlib.Path("update.ps1")
+          u = up.read_text(encoding="utf-8").replace("6.8.0", "7.0.3").replace("6.9.0", "7.0.3").replace("7.0.0", "7.0.3").replace("7.0.1", "7.0.3").replace("7.0.2", "7.0.3")
+          u = u.replace('Get-Process -Name "Putevka*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue', 'Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }; Get-Process -Name "Putevka*", "pythonw*", "python*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 600')
+          up.write_text(u, encoding="utf-8")
           sp = pathlib.Path("server.py")
-          s = sp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2")
-          s = s.replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0")
-          s = s.replace("eff_norm = round(base_norm * (1 + season_pct / 100.0), 3)", "eff_norm = round(base_norm, 3)")
+          s = sp.read_text(encoding="utf-8").replace("6.8.0", "7.0.3").replace("6.9.0", "7.0.3").replace("7.0.0", "7.0.3").replace("7.0.1", "7.0.3").replace("7.0.2", "7.0.3")
+          s = s.replace("putevka_windows_desktop_app_v6_8.zip", "putevka_windows_desktop_app_v7_0_3.zip").replace("putevka_server_v6_8.zip", "putevka_server_v7_0_3.zip")
+          s = s.replace("round(km * 0.55)", "km").replace("round(km - city_km, 1)", "0.0").replace("eff_norm = round(base_norm * (1 + season_pct / 100.0), 3)", "eff_norm = round(base_norm, 3)")
           s = s.replace('days_list = payload.get("days", [])', 'days_list = payload.get("days", []); [d.update({"receipt_num": str(d.get("receipt_num") or i)}) for i, d in enumerate([x for x in days_list if float(x.get("refueled") or 0) > 0], 1)]')
           s = s.replace('    st["appVersion"] = target_ver', '    APP_VERSION = target_ver\n    st["appVersion"] = target_ver')
+          s = s.replace('if os.path.exists( os.path.join(cand, "index.html") ):', 'if os.path.exists(os.path.join(cand, "index.html")) and "7.0.3" in open(os.path.join(cand, "index.html"), "r", encoding="utf-8", errors="ignore").read(2500):')
+          s = s.replace('if path == "/api/state":', 'if path == "/api/update/apply": self._send_json(apply_github_update())\n            elif path == "/api/state":')
           a, b = s.split("def get_front_overrides")
           _, c = b.split("def get_back_overrides", 1)
-          fn = 'def get_front_overrides(prof: dict, day_obj: dict) -> dict:\n'
-          fn += '    d_str = day_obj.get("date_ru", "")\n'
-          fn += '    fg = str(day_obj.get("fuel_grade") or prof.get("defaultFuelGrade") or "92")\n'
-          fn += '    ref = float(day_obj.get("refueled") or 0)\n'
-          fn += '    return {\n'
-          fn += '        "1,18": prof.get("waybillSeries") or "", "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "",\n'
-          fn += '        "3,7": d_str, "3,13": d_str, "4,22": prof.get("okud") or "0345001", "5,4": prof.get("orgFull") or "", "5,22": prof.get("okpo") or "",\n'
-          fn += '        "8,5": prof.get("carModel") or "", "9,8": prof.get("carPlate") or "", "9,22": prof.get("garageNumber") or "",\n'
-          fn += '        "10,2": prof.get("driverFull") or "", "10,22": prof.get("tabNumber") or "", "12,5": prof.get("license") or "",\n'
-          fn += '        "12,20": prof.get("licenseClass") or "В", "13,6": prof.get("snils") or "",\n'
-          fn += '        "14,6": prof.get("transportInfo") or "перевозка для собственных нужд", "17,0": prof.get("medOrgPre") or "",\n'
-          fn += '        "28,0": prof.get("orgShort") or "", "28,22": prof.get("mechanic") or "", "34,23": prof.get("dispatcher") or "",\n'
-          fn += '        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str,\n'
-          fn += '        "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str,\n'
-          fn += '        "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",\n'
-          fn += '        "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "",\n'
-          fn += '        "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "",\n'
-          fn += '        "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""),\n'
-          fn += '        "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),\n'
-          fn += '        "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""\n'
-          fn += '    }\n\n'
+          fn = 'def get_front_overrides(prof: dict, day_obj: dict) -> dict:\n    d_str, fg, ref = day_obj.get("date_ru", ""), str(day_obj.get("fuel_grade") or prof.get("defaultFuelGrade") or "92"), float(day_obj.get("refueled") or 0)\n    return {\n'
+          fn += '        "1,18": prof.get("waybillSeries") or "", "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "", "3,7": d_str, "3,13": d_str, "4,22": prof.get("okud") or "0345001", "5,4": prof.get("orgFull") or "", "5,22": prof.get("okpo") or "",\n'
+          fn += '        "8,5": prof.get("carModel") or "", "9,8": prof.get("carPlate") or "", "9,22": prof.get("garageNumber") or "", "10,2": prof.get("driverFull") or "", "10,22": prof.get("tabNumber") or "", "12,5": prof.get("license") or "", "12,20": prof.get("licenseClass") or "В",\n'
+          fn += '        "13,6": prof.get("snils") or "", "14,6": prof.get("transportInfo") or "перевозка для собственных нужд", "17,0": prof.get("medOrgPre") or "", "28,0": prof.get("orgShort") or "", "28,22": prof.get("mechanic") or "", "34,23": prof.get("dispatcher") or "",\n'
+          fn += '        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str, "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str, "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",\n'
+          fn += '        "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "", "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "", "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""), "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),\n'
+          fn += '        "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""}\n\n'
           sp.write_text(a + fn + "def get_back_overrides" + c, encoding="utf-8")
           hp = pathlib.Path("static/index.html")
-          h = hp.read_text(encoding="utf-8").replace("6.8.0", "7.0.2").replace("6.9.0", "7.0.2").replace("7.0.0", "7.0.2").replace("7.0.1", "7.0.2")
+          h = hp.read_text(encoding="utf-8").replace("6.8.0", "7.0.3").replace("6.9.0", "7.0.3").replace("7.0.0", "7.0.3").replace("7.0.1", "7.0.3").replace("7.0.2", "7.0.3")
           h = h.replace("const effNorm = +(baseNorm * (1 + seasonPct / 100)).toFixed(3);", "const effNorm = +baseNorm.toFixed(3);")
-          h = h.replace("const info = await res.json();", "const info = await res.json(); if (info.latestVersion === 'v7.0.2' || !info.latestVersion) { info.currentVersion = 'v7.0.2'; info.updateAvailable = false; }", 1)
+          h = h.replace("const RAW_INIT =", "const _origF = window.fetch ? window.fetch.bind(window) : null; if (_origF && !window._fRet) { window._fRet = 1; window.fetch = async (u, o) => { for (let i = 0; i < 4; i++) { try { return await _origF(u, o); } catch (e) { if (i === 3) throw e; await new Promise(r => setTimeout(r, 350)); } } }; } const RAW_INIT =", 1)
           h = h.replace('<th class="py-3 px-2 w-28 font-bold">Время чека</th>', '<th class="py-3 px-2 w-24 font-bold">№ чека</th><th class="py-3 px-2 w-28 font-bold">Время чека</th>')
           h = h.replace('tbody.innerHTML = refuelRows.map(({ d, idx }) => {', 'tbody.innerHTML = refuelRows.map(({ d, idx }, rSeq) => { if (!d.receipt_num) d.receipt_num = String(rSeq + 1);')
           h = h.replace('<input type="text" id="recTime_${idx}"', '<input type="text" id="recNum_${idx}" value="${d.receipt_num}" oninput="d.receipt_num=this.value.trim()" class="w-16 border px-1 text-center font-bold" /></td><td><input type="text" id="recTime_${idx}"')
           h = h.replace('const elT = document.getElementById(`recTime_${idx}`);', 'const elN = document.getElementById(`recNum_${idx}`); if (elN) d.receipt_num = elN.value.trim(); const elT = document.getElementById(`recTime_${idx}`);')
-          h = h.replace("'40,20': 'АИ',", "'40,20': 'АИ', '47,24': (dayObj && dayObj.refueled > 0) ? fmtNumRu(dayObj.refueled, 2) : '',")
-          h = h.replace("'40,24': fg,", "'40,24': fg, '49,18': (dayObj && dayObj.refueled > 0) ? String(dayObj.receipt_num || (getCurrentMonthDays().filter(x => x.refueled > 0).indexOf(dayObj) + 1) || 1) : '',")
-          h = h.replace("'41,10': dStr,", "'41,10': dStr, '50,24': (dayObj && dayObj.start_tank != null) ? fmtNumRu(dayObj.start_tank, 2) : '', '52,24': (dayObj && dayObj.end_tank != null) ? fmtNumRu(dayObj.end_tank, 2) : '',")
-          h = h.replace("'47,10': dStr,", "'47,10': dStr, '54,24': (dayObj && dayObj.burned > 0) ? fmtNumRu(dayObj.burned, 2) : '', '55,24': (dayObj && dayObj.burned > 0) ? fmtNumRu(dayObj.burned, 2) : '',")
+          ha, hb = h.split("function getFrontOverrides")
+          ha = ha.split("function fmtNumRu(")[0]
+          _, hc = hb.split("function getBackOverrides", 1)
+          jfn = "function fmtNumRu(v, d) { if (v === null || v === undefined || v === '') return ''; const n = Number(String(v).replace(',', '.')); if (!isFinite(n)) return String(v); const s = Math.abs(n).toFixed(typeof d === 'number' ? d : 2).replace('.', ','); return (n < 0 ? '-' : '') + s; }\n"
+          jfn += "    function getFrontOverrides(prof, dayObj) {\n"
+          jfn += "      const dStr = (dayObj && dayObj.date_ru) ? dayObj.date_ru : '01.09.2026', fg = String((dayObj && dayObj.fuel_grade) || (prof && prof.defaultFuelGrade) || '92'), refVal = dayObj ? Number(dayObj.refueled || 0) : 0, burnedNum = dayObj ? Number(dayObj.burned || 0) : 0;\n"
+          jfn += "      let recNo = ''; if (refVal > 0 && dayObj) { const days = typeof getCurrentMonthDays === 'function' ? getCurrentMonthDays() : [], dIdx = days.indexOf(dayObj), inp = dIdx >= 0 ? document.getElementById('recNum_' + dIdx) : null, seq = days.filter(x => Number(x.refueled) > 0).indexOf(dayObj); recNo = String((inp && inp.value.trim()) || dayObj.receipt_num || (seq >= 0 ? seq + 1 : 1)); dayObj.receipt_num = recNo; }\n"
+          jfn += "      return {'1,18': prof.waybillSeries || '', '1,22': (dayObj && dayObj.waybill_num) || prof.waybillNumberPrefix || '', '3,7': dStr, '3,13': dStr, '4,22': prof.okud || '0345001', '5,4': prof.orgFull || '', '5,22': prof.okpo || '',\n"
+          jfn += "        '8,5': prof.carModel || '', '9,8': prof.carPlate || '', '9,22': prof.garageNumber || '', '10,2': prof.driverFull || '', '10,22': prof.tabNumber || '', '12,5': prof.license || '', '12,20': prof.licenseClass || 'В', '13,6': prof.snils || '',\n"
+          jfn += "        '14,6': prof.transportInfo || 'перевозка для собственных нужд', '17,0': prof.medOrgPre || '', '28,0': prof.orgShort || '', '28,22': prof.mechanic || '', '34,23': prof.dispatcher || '', '37,22': prof.driverShort || '', '40,20': 'АИ', '40,24': fg, '41,10': dStr,\n"
+          jfn += "        '42,10': prof.depTimeDefault || '9-00', '44,9': prof.dispatcher || '', '47,10': dStr, '47,24': refVal > 0 ? fmtNumRu(refVal, 2) : '', '48,10': prof.arrTimeDefault || '18-00', '49,18': recNo, '50,9': prof.dispatcher || '',\n"
+          jfn += "        '50,24': (dayObj && dayObj.start_tank != null) ? fmtNumRu(dayObj.start_tank, 2) : '', '52,24': (dayObj && dayObj.end_tank != null) ? fmtNumRu(dayObj.end_tank, 2) : '', '54,24': burnedNum > 0 ? fmtNumRu(burnedNum, 2) : '', '55,24': burnedNum > 0 ? fmtNumRu(burnedNum, 2) : '',\n"
+          jfn += "        '62,22': prof.dispatcher || '', '67,9': prof.driverShort || '', '68,22': prof.driverShort || ''};\n    }\n\n    "
+          h = ha + jfn + "function getBackOverrides" + hc
           hp.write_text(h, encoding="utf-8")
-          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-          subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
-          subprocess.run(["git", "add", "version.txt", "server.py", "static/index.html", "data/app_data.json", "data/putevka_db.json"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync v7.0.2 files to main [skip ci]"], check=False)
-          subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
+          assert "function fmtNumRu(v, d)" in h and h.split("function getFrontOverrides")[1].split("function getBackOverrides")[0].count("'49,18'") == 1
           import server
           ov1 = server.get_front_overrides({}, {"date_ru": "05.09.2026", "refueled": 30.0, "receipt_num": "1"})
           ov2 = server.get_front_overrides({}, {"date_ru": "12.09.2026", "refueled": 35.0, "receipt_num": "2"})
           assert ov1["49,18"] == "1" and ov2["49,18"] == "2"
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
-          z = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_2.zip", "w", zipfile.ZIP_DEFLATED); [z.write(f, os.path.basename(f)) for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]]; z.close()
-          subprocess.run(["gh", "release", "delete", "v7.0.2", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.0.2", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_2.zip", "update.ps1", "update.sh", "--title", "АСУ ПУТЁВКА v7.0.2", "--notes", "Номер заправочного листа (49,18) берется из таблицы чеков; синхронизированы файлы в ветке main для мгновенного обновления из приложения.", "--latest"], check=True)
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_0_3.zip", "w", zipfile.ZIP_DEFLATED); [z1.write(f, os.path.basename(f)) for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]]; z1.close()
+          srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
+          z2 = zipfile.ZipFile("putevka_server_v7_0_3.zip", "w", zipfile.ZIP_DEFLATED); [z2.write(f, f) for f in srv_files if os.path.exists(f)]; z2.close()
+          os.makedirs("releases", exist_ok=True); shutil.copy2("putevka_server_v7_0_3.zip", "releases/putevka_server_v7_0_3.zip"); shutil.copy2("putevka_windows_desktop_app_v7_0_3.zip", "releases/putevka_windows_desktop_app_v7_0_3.zip")
+          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
+          subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
+          subprocess.run(["git", "add", "-A"], check=True)
+          subprocess.run(["git", "commit", "-m", "Sync v7.0.3 desktop and server packages to main [skip ci]"], check=False)
+          subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
+          subprocess.run(["gh", "release", "delete", "v7.0.3", "--yes", "--cleanup-tag"], check=False)
+          subprocess.run(["gh", "release", "create", "v7.0.3", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_0_3.zip", "putevka_server_v7_0_3.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.0.3 — Исправление предпросмотра (Issue #1 fmtNumRu) и синхронизация серверной и десктопной версий", "--notes", "Исправлен Issue #1 (добавлена функция fmtNumRu, устранено дублирование ключа 49,18 в getFrontOverrides, добавлен retry для /api/state и /api/fuel/parse-upload), синхронизирована серверная сборка putevka_server_v7_0_3.zip и десктопная сборка Putevka.exe.", "--latest"], check=True)
