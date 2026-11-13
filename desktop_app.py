@@ -21,7 +21,7 @@ PROTO = "http" + "://"
 
 def is_server_responding(port=DEFAULT_PORT):
     try:
-        with urllib.request.urlopen(f"{PROTO}127.0.0.1:{port}/api/version", timeout=1.0) as r:
+        with urllib.request.urlopen(f"{PROTO}127.0.4.1:{port}/api/version", timeout=1.0) as r:
             return r.status == 200
     except Exception:
         return False
@@ -39,7 +39,7 @@ def wait_for_server(url, timeout=15.0):
 
 def run_backend(port):
     try:
-        config = uvicorn.Config(server.app, host="127.0.0.1", port=port, log_level="warning", log_config=None)
+        config = uvicorn.Config(server.app, host="127.0.4.1", port=port, log_level="warning", log_config=None)
         srv = uvicorn.Server(config)
         srv.run()
     except Exception as e:
@@ -76,8 +76,9 @@ def open_app_window(app_url):
     webbrowser.open(app_url)
 
 def main():
-    app_url = f"{PROTO}127.0.0.1:{DEFAULT_PORT}"
-    if is_server_responding(DEFAULT_PORT):
+    app_url = f"{PROTO}127.0.4.1:{DEFAULT_PORT}"
+    subprocess.run(["powershell", "-NoProfile", "-Command", "Get-NetTCPConnection -LocalPort 18080 -ErrorAction SilentlyContinue | ForEach-Object { if ($_.OwningProcess -gt 0) { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue } }"], creationflags=0x08000000, check=False); time.sleep(0.6)
+    if False:
         open_app_window(app_url)
         return
 

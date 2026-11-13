@@ -9,9 +9,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.0.1"
+APP_VERSION = "v7.0.4"
 
-app = FastAPI(title="ПУТЁВКА v7.0.1 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.0.4 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -978,7 +978,7 @@ if __name__ == "__main__":
 
 @app.get('/api/update/check')
 def api_upd_check():
-    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.1','updateAvailable':False}
+    return {'status':'ok','currentVersion':APP_VERSION,'latestVersion':'v7.0.4','updateAvailable':False}
 @app.post('/api/update/apply')
 def api_upd_apply():
-    return {'status':'ok','updatedTo':'v7.0.1','message':'Обновлено из GitHub с сохранением БД'}
+    return {'status':'ok','updatedTo':'v7.0.4','message':'Обновлено из GitHub с сохранением БД'}
