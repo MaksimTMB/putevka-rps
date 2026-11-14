@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.1.3"
+APP_VERSION = "v7.1.4"
 
-app = FastAPI(title="ПУТЁВКА v7.1.3 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.1.4 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1036,12 +1036,17 @@ def _replace_windows_exe():
         bat = exe_path + ".update.bat"
         with open(bat, "w", encoding="utf-8") as f:
             f.write("@echo off\r\n")
+            f.write("chcp 65001 >nul\r\n")
             f.write("timeout /t 2 /nobreak >nul\r\n")
-            f.write(f"taskkill /F /IM Putevka.exe >nul 2>&1\r\n")
+            f.write("taskkill /F /IM Putevka.exe >nul 2>&1\r\n")
             f.write("timeout /t 1 /nobreak >nul\r\n")
-            f.write(f'move /Y "{new_path}" "{exe_path}" >nul\r\n')
+            f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
+            f.write(f'if exist "{new_path}" timeout /t 2 /nobreak >nul\r\n')
+            f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
+            f.write(f'if exist "{new_path}" timeout /t 2 /nobreak >nul\r\n')
+            f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
             f.write(f'start "" "{exe_path}"\r\n')
-            f.write('del "%~f0"\r\n')
+            f.write('del "%~f0" >nul 2>&1\r\n')
         subprocess.Popen(["cmd", "/c", bat], creationflags=0x00000008, close_fds=True)
         return True
     except Exception:

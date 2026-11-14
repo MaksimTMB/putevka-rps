@@ -271,7 +271,7 @@ for attempt in 1 2 3 4 5 6; do
   sleep 1
   if "$TARGET_DIR/venv/bin/python" -c "
 import urllib.request, json
-with urllib.request.urlopen('http://127.0.4.1:${PORT}/api/state', timeout=3) as resp:
+with urllib.request.urlopen('http://127.0.0.1:${PORT}/api/state', timeout=3) as resp:
     assert resp.status == 200
     data = json.loads(resp.read().decode('utf-8'))
     assert isinstance(data.get('profiles'), list)
@@ -288,7 +288,7 @@ if [ "$HEALTH_OK" -ne 1 ]; then
 fi
 
 PID_VAL=$(pgrep -f "server.py" | head -n 1 || echo "активен")
-LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo "127.0.4.1")
+LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || ipconfig getifaddr en0 2>/dev/null || echo "127.0.0.1")
 
 echo -e "${GREEN}==================================================================${NC}"
 echo -e "${GREEN}  >>> УСПЕШНО! АСУ «ПУТЁВКА» ${APP_VERSION} установлена и запущена!${NC}"
@@ -297,7 +297,7 @@ echo -e "  Версия сборки:      ${GREEN}${APP_VERSION}${NC}"
 echo -e "  Режим запуска:      ${STARTED_VIA} (PID: ${PID_VAL})"
 echo -e "  Рабочая папка:      ${TARGET_DIR}"
 echo -e "  Файл базы данных:   ${TARGET_DIR}/data/putevka_db.json"
-echo -e "  Локальный адрес:    ${CYAN}http://127.0.4.1:${PORT}${NC}"
+echo -e "  Локальный адрес:    ${CYAN}http://127.0.0.1:${PORT}${NC}"
 echo -e "  Адрес в сети (LAN): ${CYAN}http://${LAN_IP}:${PORT}${NC}"
 echo -e "  Лог-файл сервера:   ${TARGET_DIR}/server.log"
 echo -e "${GREEN}==================================================================${NC}"
