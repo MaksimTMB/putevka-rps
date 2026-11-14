@@ -1,7 +1,7 @@
 import os, sys
 if sys.stdout is None: sys.stdout = open(os.devnull, 'w', encoding='utf-8')
 if sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')
-import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse, urllib.request
+import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse, urllib.request, hashlib
 import subprocess, threading, time
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
@@ -483,6 +483,10 @@ def save_state(payload: dict = Body(...)):
     }
 
 
+def _hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
 @app.post("/api/auth/setup")
 def setup_admin(payload: dict = Body(...)):
     login = str(payload.get("login") or "").strip()
@@ -497,7 +501,7 @@ def setup_admin(payload: dict = Body(...)):
     for u in users:
         if u.get("role") == "admin":
             u["login"] = login
-            u["password"] = password
+            u["password"] = _hash_password(password)
             u["fullName"] = full_name
             u["shortName"] = full_name
             u["active"] = True
@@ -507,7 +511,7 @@ def setup_admin(payload: dict = Body(...)):
         admin_user = {
             "id": "usr_admin",
             "login": login,
-            "password": password,
+            "password": _hash_password(password),
             "role": "admin",
             "fullName": full_name,
             "shortName": full_name,
@@ -531,7 +535,8 @@ def login_user(payload: dict = Body(...)):
     st = load_valid_state()
     users = st.get("users", [])
     for u in users:
-        if u.get("login") == login and u.get("password") == password:
+        stored = u.get("password") or ""
+        if u.get("login") == login and (stored == password or stored == _hash_password(password)):
             if u.get("active") is False:
                 return {"status": "error", "message": "Учетная запись отключена администратором"}
             return {"status": "ok", "user": u}
@@ -979,7 +984,7 @@ app.mount("/static", StaticFiles(directory=os.path.join(BUNDLE_DIR if not os.pat
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    uvicorn.run(app, host="127.0.0.1", port=8080)
 
 UPDATE_REPO = "MaksimTMB/putevka-rps"
 UPDATE_FILES = ["version.txt", "server.py", "desktop_app.py", "requirements.txt", "static/index.html", "data/app_data.json"]
@@ -1108,6 +1113,8 @@ def documents_upload(payload: dict = Body(...)):
         raw = base64.b64decode(b64)
     except Exception:
         raise HTTPException(status_code=400, detail="Некорректное содержимое файла")
+    if len(raw) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Файл слишком большой (максимум 50 МБ)")
 
     safe_name = re.sub(r'[^\w.\-]+', '_', filename) or "document"
     safe_name = safe_name[:80]
