@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.1.2"
+APP_VERSION = "v7.1.3"
 
-app = FastAPI(title="ПУТЁВКА v7.1.2 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.1.3 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
