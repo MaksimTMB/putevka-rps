@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.2.2"
+APP_VERSION = "v7.2.3"
 
-app = FastAPI(title="ПУТЁВКА v7.2.2 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.2.3 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -77,11 +77,16 @@ def xml_esc(s):
 
 def get_front_overrides(prof: dict, day_obj: dict) -> dict:
     d_str, fg, ref = day_obj.get("date_ru", ""), str(day_obj.get("fuel_grade") or prof.get("defaultFuelGrade") or "92"), float(day_obj.get("refueled") or 0)
+    legs = day_obj.get("legs") or []
+    first_leg = legs[0] if legs else None
+    last_leg = legs[-1] if legs else None
+    dep_time = (first_leg.get("dep") if isinstance(first_leg, dict) and first_leg.get("dep") else (prof.get("depTimeDefault") or "9-00"))
+    arr_time = (last_leg.get("arr") if isinstance(last_leg, dict) and last_leg.get("arr") else (prof.get("arrTimeDefault") or "18-00"))
     return {
         "1,18": prof.get("waybillSeries") or "", "1,22": day_obj.get("waybill_num") or prof.get("waybillNumberPrefix") or "", "3,7": d_str, "3,13": d_str, "4,22": prof.get("okud") or "0345001", "5,4": prof.get("orgFull") or "", "5,22": prof.get("okpo") or "",
         "8,5": prof.get("carModel") or "", "9,8": prof.get("carPlate") or "", "9,22": prof.get("garageNumber") or "", "10,2": prof.get("driverFull") or "", "10,22": prof.get("tabNumber") or "", "12,5": prof.get("license") or "", "12,20": prof.get("licenseClass") or "В",
         "13,6": prof.get("snils") or "", "14,6": prof.get("transportInfo") or "перевозка для собственных нужд", "17,0": prof.get("medOrgPre") or "", "28,0": prof.get("orgShort") or "", "28,22": prof.get("mechanic") or "", "34,23": prof.get("dispatcher") or "",
-        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str, "42,10": prof.get("depTimeDefault") or "9-00", "44,9": prof.get("dispatcher") or "", "47,10": d_str, "48,10": prof.get("arrTimeDefault") or "18-00", "50,9": prof.get("dispatcher") or "",
+        "37,22": prof.get("driverShort") or "", "40,20": "АИ", "40,24": fg, "41,10": d_str, "42,10": dep_time, "44,9": prof.get("dispatcher") or "", "47,10": d_str, "48,10": arr_time, "50,9": prof.get("dispatcher") or "",
         "47,24": str(day_obj.get("refueled") or "") if ref > 0 else "", "49,18": str(day_obj.get("receipt_num") or "1") if ref > 0 else "", "50,24": str(day_obj.get("start_tank") or ""), "52,24": str(day_obj.get("end_tank") or ""), "54,24": str(day_obj.get("burned") or ""), "55,24": str(day_obj.get("burned") or ""),
         "62,22": prof.get("dispatcher") or "", "67,9": prof.get("driverShort") or "", "68,22": prof.get("driverShort") or ""}
 

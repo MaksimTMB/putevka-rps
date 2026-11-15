@@ -14,7 +14,7 @@ $DataDir = Join-Path $AppDir "data"
 
 New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
 
-Write-Host "=== АСУ ПУТЁВКА v7.2.1 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
+Write-Host "=== АСУ ПУТЁВКА v7.2.3 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
 
 $CurDb = Join-Path $DataDir "putevka_db.json"
 
@@ -30,13 +30,31 @@ Remove-Item -Path (Join-Path $AppDir "static") -Recurse -Force -ErrorAction Sile
 
 $TargetExe = Join-Path $AppDir "Putevka.exe"
 
-$DesktopExe = Join-Path ([Environment]::GetFolderPath("Desktop")) "Putevka.exe"
-
 Invoke-WebRequest -Uri $LatestExeUrl -OutFile $TargetExe -UseBasicParsing
 
-Copy-Item -LiteralPath $TargetExe -Destination $DesktopExe -Force -ErrorAction SilentlyContinue
+# Настоящие ярлыки вместо копии exe: «ПУТЁВКА.lnk» на Рабочем столе и в меню «Пуск».
+# Повторный запуск скрипта обновляет ярлык, а не создаёт второй.
+$OldDesktopExe = Join-Path ([Environment]::GetFolderPath("Desktop")) "Putevka.exe"
+if (Test-Path $OldDesktopExe) { Remove-Item -LiteralPath $OldDesktopExe -Force -ErrorAction SilentlyContinue }
 
-Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.2.1: $DesktopExe" -ForegroundColor Green
+$DesktopLnk = Join-Path ([Environment]::GetFolderPath("Desktop")) "ПУТЁВКА.lnk"
+$StartMenuDir = Join-Path ([Environment]::GetFolderPath("Programs")) "АСУ ПУТЁВКА"
+New-Item -ItemType Directory -Path $StartMenuDir -Force | Out-Null
+$StartMenuLnk = Join-Path $StartMenuDir "ПУТЁВКА.lnk"
+
+$Shell = New-Object -ComObject WScript.Shell
+foreach ($LnkPath in @($DesktopLnk, $StartMenuLnk)) {
+    $Lnk = $Shell.CreateShortcut($LnkPath)
+    $Lnk.TargetPath = $TargetExe
+    $Lnk.WorkingDirectory = $AppDir
+    $Lnk.IconLocation = "$TargetExe,0"
+    $Lnk.Description = "АСУ ПУТЁВКА — путевые листы (форма № 3)"
+    $Lnk.Save()
+}
+
+Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v7.2.3" -ForegroundColor Green
+Write-Host "Ярлык на Рабочем столе: $DesktopLnk" -ForegroundColor Green
+Write-Host "Ярлык в меню «Пуск»: $StartMenuLnk" -ForegroundColor Green
 
 Start-Process -FilePath $TargetExe
 
