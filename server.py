@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.3.1"
+APP_VERSION = "v7.3.2"
 
-app = FastAPI(title="ПУТЁВКА v7.3.1 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.3.2 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1034,28 +1034,81 @@ if __name__ == "__main__":
 UPDATE_REPO = "MaksimTMB/putevka-rps"
 UPDATE_FILES = ["version.txt", "server.py", "desktop_app.py", "requirements.txt", "static/index.html", "data/app_data.json"]
 
+# Кэш последнего релиза: экономим запросы к API GitHub (лимит 60/час без токена)
+_LAST_RELEASE_CACHE = {"tag": None, "ok": False, "ts": 0.0}
+_RELEASE_CACHE_TTL = 600.0  # секунд
+
 
 def _version_tuple(v):
     return tuple(int(x) for x in re.findall(r"\d+", str(v))[:3])
 
 
 def _fetch_latest_release():
+    """Последний тег релиза с GitHub. Два источника + кэш 10 минут.
+
+    Возвращает тег (например 'v7.3.2'). Если ни один источник не ответил —
+    возвращаем текущую APP_VERSION, но запоминаем в кэше, что проверка
+    НЕ удалась (флаг ok=False), чтобы /api/update/check мог честно сказать
+    «не удалось проверить», а не притворяться «актуальная версия».
+    """
+    now = time.time()
+    if _LAST_RELEASE_CACHE["tag"] is not None and (now - _LAST_RELEASE_CACHE["ts"]) < _RELEASE_CACHE_TTL:
+        return _LAST_RELEASE_CACHE["tag"]
+
+    tag = None
+    ok = False
+    # Способ 1: официальное API (может быть недоступно или лимит 60 запросов/час)
     try:
         req = urllib.request.Request(
             f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest",
             headers={"User-Agent": "PutevkaUpdater/1.0", "Accept": "application/vnd.github+json"},
         )
         with urllib.request.urlopen(req, timeout=8) as r:
-            return str(json.load(r).get("tag_name") or APP_VERSION)
+            t = str(json.load(r).get("tag_name") or "")
+            if re.match(r"^v?\d+\.\d+\.\d+$", t):
+                tag, ok = t, True
     except Exception:
-        return APP_VERSION
+        pass
+    # Способ 2: безлимитный переход releases/latest — конечный адрес содержит тег
+    if not ok:
+        try:
+            req = urllib.request.Request(
+                f"https://github.com/{UPDATE_REPO}/releases/latest",
+                headers={"User-Agent": "PutevkaUpdater/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                m = re.search(r"/tag/(v\d+\.\d+\.\d+)$", str(r.url))
+                if m:
+                    tag, ok = m.group(1), True
+        except Exception:
+            pass
+
+    if ok:
+        _LAST_RELEASE_CACHE.update({"tag": tag, "ok": True, "ts": now})
+        return tag
+    # Проверка не удалась: честно запоминаем это (кэш на 2 минуты, чтобы не долбить)
+    _LAST_RELEASE_CACHE.update({"tag": APP_VERSION, "ok": False, "ts": now - _RELEASE_CACHE_TTL + 120.0})
+    return APP_VERSION
+
+
+def _latest_release_known():
+    """True, если последнюю проверку релиза удалось выполнить успешно."""
+    _fetch_latest_release()
+    return _LAST_RELEASE_CACHE["ok"]
 
 
 @app.get('/api/update/check')
 def api_upd_check():
     latest = _fetch_latest_release()
+    known = _latest_release_known()
     update_available = _version_tuple(latest) > _version_tuple(APP_VERSION)
-    return {'status': 'ok', 'currentVersion': APP_VERSION, 'latestVersion': latest, 'updateAvailable': update_available}
+    return {
+        'status': 'ok',
+        'currentVersion': APP_VERSION,
+        'latestVersion': latest,
+        'latestKnown': known,
+        'updateAvailable': update_available and known,
+    }
 
 
 def _schedule_server_restart():

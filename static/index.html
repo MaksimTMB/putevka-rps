@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ПУТЁВКА v7.3.1 — Форма № 3 (ОКУД 0345001)</title>
+  <title>ПУТЁВКА v7.3.2 — Форма № 3 (ОКУД 0345001)</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1638,7 +1638,7 @@
     ];
 
     const state = {
-      appVersion: 'v7.3.1',
+      appVersion: 'v7.3.2',
       adminSetupCompleted: Boolean(RAW_INIT.adminSetupCompleted),
       currentTab: 'generator',
       users: RAW_INIT.users || [],
@@ -7088,8 +7088,8 @@
       return changed;
     }
 
-    // Бейдж версии в шапке: зелёный = версия актуальна, жёлтый = есть обновление.
-    // Клик по жёлтому бейджу запускает обновление через /api/update/apply.
+    // Бейдж версии в шапке: зелёный = версия актуальна, жёлтый = есть обновление,
+    // серый = GitHub не ответил (не притворяемся «актуальной», предлагаем перепроверить).
     let updateAvailableNow = false;
     async function refreshVersionBadge() {
       const badge = document.getElementById('appVersionBadge');
@@ -7104,6 +7104,12 @@
           badge.className = 'text-xs px-2 py-0.5 rounded-md bg-yellow-500/20 text-yellow-300 border border-yellow-400/40 font-bold cursor-pointer hover:bg-yellow-500/30 transition';
           badge.title = `Доступна версия ${d.latestVersion || ''}. Нажмите, чтобы обновить.`;
           badge.onclick = applyUpdateFromBadge;
+        } else if (d.latestKnown === false) {
+          updateAvailableNow = false;
+          badge.textContent = `${d.currentVersion || state.appVersion} · проверка недоступна`;
+          badge.className = 'text-xs px-2 py-0.5 rounded-md bg-slate-500/20 text-slate-300 border border-slate-400/40 font-bold cursor-pointer hover:bg-slate-500/30 transition';
+          badge.title = 'Не удалось связаться с GitHub: возможно, нет интернета или сайт недоступен. Нажмите, чтобы проверить ещё раз.';
+          badge.onclick = refreshVersionBadge;
         } else {
           updateAvailableNow = false;
           badge.textContent = d.currentVersion || state.appVersion;
@@ -7112,7 +7118,12 @@
           badge.onclick = null;
         }
       } catch (e) {
-        // Нет сети или сервер не ответил — оставляем бейдж зелёным, не пугаем «обновлением».
+        // Нет сети или сервер не ответил — серый бейдж с возможностью перепроверить
+        updateAvailableNow = false;
+        badge.textContent = `${state.appVersion} · проверка недоступна`;
+        badge.className = 'text-xs px-2 py-0.5 rounded-md bg-slate-500/20 text-slate-300 border border-slate-400/40 font-bold cursor-pointer hover:bg-slate-500/30 transition';
+        badge.title = 'Не удалось проверить обновление. Нажмите, чтобы попробовать ещё раз.';
+        badge.onclick = refreshVersionBadge;
       }
     }
     function applyUpdateFromBadge() {
@@ -7171,6 +7182,8 @@ async function runGitHubAutoUpdate(){
     const cd = await c.json();
     if (cd.updateAvailable) {
       prompt = "Доступна новая версия " + (cd.latestVersion||"") + " (у вас " + (cd.currentVersion||"") + "). Обновить сейчас? Рабочая база будет сохранена.";
+    } else if (cd.latestKnown === false) {
+      prompt = "Не удалось связаться с GitHub — проверить обновление сейчас нельзя. Переустановить файлы программы из GitHub принудительно (база сохранится)?";
     } else {
       prompt = "У вас актуальная версия " + (cd.currentVersion||"") + ". Всё равно переустановить файлы из GitHub (база сохранится)?";
     }
@@ -7179,7 +7192,7 @@ async function runGitHubAutoUpdate(){
   try {
     const r = await fetch("/api/update/apply",{method:"POST"});
     const d = await r.json();
-    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.1")));
+    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.2")));
     if (d.status === 'ok') await waitForServerAndReload(d.updatedTo);
   } catch(e) {
     alert("Ошибка обновления: " + e.message + "\n\nЕсли сервер уже перезапускается — просто обновите страницу (F5) через несколько секунд.");
