@@ -18,6 +18,37 @@ import server
 
 DEFAULT_PORT = 18080
 PROTO = "http" + "://"
+PORT_FILE = os.path.join(_log_dir, "putevka_port.txt")
+
+
+def _read_saved_port():
+    try:
+        with open(PORT_FILE, encoding="utf-8") as f:
+            p = int(str(f.read()).strip())
+            if 1024 <= p <= 65535:
+                return p
+    except Exception:
+        pass
+    return DEFAULT_PORT
+
+
+def _save_port(p):
+    try:
+        with open(PORT_FILE, "w", encoding="utf-8") as f:
+            f.write(str(p))
+    except Exception:
+        pass
+
+
+def _port_is_free(port):
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        s.bind(("127.0.0.1", port))
+        return True
+    except Exception:
+        return False
+    finally:
+        s.close()
 
 
 def _write_error(text):
@@ -126,8 +157,12 @@ def _open_error_page(err_text):
 
 
 def main():
-    port = _find_free_port()
-    app_url = f"{PROTO}127.0.0.1:{port}"
+    # Стабильный порт: новое окно после обновления попадает на тот же адрес,
+    # а повторный запуск не плодит второй сервер (просто открывает окно к работающему).
+    port = _read_saved_port()
+    if is_server_responding(port):
+        open_app_window(f"{PROTO}127.0.0.1:{port}")
+        return
 
     try:
         subprocess.run([
@@ -136,6 +171,11 @@ def main():
         ], creationflags=0x08000000, check=False)
     except Exception:
         pass
+
+    if not _port_is_free(port):
+        port = _find_free_port()
+    _save_port(port)
+    app_url = f"{PROTO}127.0.0.1:{port}"
 
     t = threading.Thread(target=run_backend, args=(port,), daemon=True)
     t.start()

@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.2.0"
+APP_VERSION = "v7.2.1"
 
-app = FastAPI(title="ПУТЁВКА v7.2.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.2.1 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1033,18 +1033,25 @@ def _replace_windows_exe():
             content = r.read()
         with open(new_path, "wb") as f:
             f.write(content)
+        log_path = os.path.join(os.path.dirname(exe_path), "update.log")
         bat = exe_path + ".update.bat"
         with open(bat, "w", encoding="utf-8") as f:
             f.write("@echo off\r\n")
             f.write("chcp 65001 >nul\r\n")
-            f.write("timeout /t 2 /nobreak >nul\r\n")
+            # журнал замены файла для диагностики проблем обновления
+            f.write(f'echo [%date% %time%] start update > "{log_path}" 2>&1\r\n')
+            # пауза, чтобы ответ сервера и сообщение дошли до окна приложения
+            f.write("timeout /t 3 /nobreak >nul\r\n")
             f.write("taskkill /F /IM Putevka.exe >nul 2>&1\r\n")
-            f.write("timeout /t 1 /nobreak >nul\r\n")
+            f.write(f'echo [%date% %time%] old exe stopped >> "{log_path}" 2>&1\r\n')
+            f.write("timeout /t 2 /nobreak >nul\r\n")
             f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
-            f.write(f'if exist "{new_path}" timeout /t 2 /nobreak >nul\r\n')
+            f.write(f'if exist "{new_path}" timeout /t 3 /nobreak >nul\r\n')
             f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
-            f.write(f'if exist "{new_path}" timeout /t 2 /nobreak >nul\r\n')
+            f.write(f'if exist "{new_path}" timeout /t 3 /nobreak >nul\r\n')
             f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
+            f.write(f'if exist "{new_path}" (echo [%date% %time%] WARNING: new exe NOT installed, file busy >> "{log_path}" 2>&1) else (echo [%date% %time%] new exe installed >> "{log_path}" 2>&1)\r\n')
+            # запускаем программу в любом случае: если замена не удалась — запустится прежняя версия
             f.write(f'start "" "{exe_path}"\r\n')
             f.write('del "%~f0" >nul 2>&1\r\n')
         subprocess.Popen(["cmd", "/c", bat], creationflags=0x00000008, close_fds=True)
