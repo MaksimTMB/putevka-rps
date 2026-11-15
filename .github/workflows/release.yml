@@ -1,4 +1,4 @@
-name: Build and Release v7.2.3
+name: Build and Release v7.3.0
 on:
   push:
     branches: [ main ]
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify and Publish v7.2.3
+      - name: Build Verify and Publish v7.3.0
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -25,9 +25,9 @@ jobs:
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
 
           # 1. Проверка версии и сервера
-          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.2.3", "version.txt должен содержать 7.2.3"
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.3.0", "version.txt должен содержать 7.3.0"
           import server
-          assert server.APP_VERSION == "v7.2.3", "server.APP_VERSION должен быть v7.2.3"
+          assert server.APP_VERSION == "v7.3.0", "server.APP_VERSION должен быть v7.3.0"
 
           # 2. Проверка синтаксиса JavaScript клиента
           h = pathlib.Path("static/index.html").read_text(encoding="utf-8")
@@ -41,30 +41,30 @@ jobs:
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
 
           # 4. Формирование архивов релиза
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_2_3.zip", "w", zipfile.ZIP_DEFLATED)
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_3_0.zip", "w", zipfile.ZIP_DEFLATED)
           for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]:
               if os.path.exists(f):
                   z1.write(f, os.path.basename(f))
           z1.close()
 
           srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v7_2_3.zip", "w", zipfile.ZIP_DEFLATED)
+          z2 = zipfile.ZipFile("putevka_server_v7_3_0.zip", "w", zipfile.ZIP_DEFLATED)
           for f in srv_files:
               if os.path.exists(f):
                   z2.write(f, f)
           z2.close()
 
           os.makedirs("releases", exist_ok=True)
-          shutil.copy2("putevka_server_v7_2_3.zip", "releases/putevka_server_v7_2_3.zip")
-          shutil.copy2("putevka_windows_desktop_app_v7_2_3.zip", "releases/putevka_windows_desktop_app_v7_2_3.zip")
+          shutil.copy2("putevka_server_v7_3_0.zip", "releases/putevka_server_v7_3_0.zip")
+          shutil.copy2("putevka_windows_desktop_app_v7_3_0.zip", "releases/putevka_windows_desktop_app_v7_3_0.zip")
 
           # 5. Синхронизация собранных пакетов обратно в репозиторий
           subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
           subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
           subprocess.run(["git", "add", "-A"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync v7.2.3 release packages [skip ci]"], check=False)
+          subprocess.run(["git", "commit", "-m", "Sync v7.3.0 release packages [skip ci]"], check=False)
           subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
 
           # 6. Публикация релиза GitHub
-          subprocess.run(["gh", "release", "delete", "v7.2.3", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.2.3", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_2_3.zip", "putevka_server_v7_2_3.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.2.3 — Заправка до/после смены, реальное время в пути, ярлык", "--notes", "Заправка по времени чека: ранний чек (до 9:00) — АЗС первым маршрутом, поздний (после 18:00) — последним, внутри смены — в середине. Убрано «сжатие» переездов: время в пути реалистичное (30–40 км/ч), при ранней заправке день начинается раньше, при поздней — заканчивается позже. В шапке ПЛ — фактические время выезда/возврата. Бейдж версии стал кнопкой обновления. Установщик Windows создаёт настоящий ярлык «ПУТЁВКА.lnk» вместо копии exe.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "delete", "v7.3.0", "--yes", "--cleanup-tag"], check=False)
+          subprocess.run(["gh", "release", "create", "v7.3.0", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_3_0.zip", "putevka_server_v7_3_0.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.3.0 — Заправочные выезды выходных дней", "--notes", "Чек АЗС, пришедшийся на субботу или воскресенье, больше не переносится на чужой рабочий день: для него создаётся отдельный заправочный выезд «база → АЗС → база» со своим путевым листом, прибытие на АЗС ровно по времени чека, реальная пауза на заправку и реальный километраж. Парсер ведомостей: колонка «Время» теперь главный источник времени чека (раньше могло подтягиваться время из ячейки даты), поддержаны нестандартные форматы времени (8.42, 8,42, 8ч42м, 0842, дробь Excel). При нескольких чеках за один день маршрут строится по самому раннему времени. В таблице маршрутов у плеча ⛽ показано время чека.", "--latest"], check=True)
