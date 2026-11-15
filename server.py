@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.2.3"
+APP_VERSION = "v7.3.0"
 
-app = FastAPI(title="ПУТЁВКА v7.2.3 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.3.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -595,6 +595,48 @@ def match_azs_from_text(text_str: str, azs_locs: list) -> str:
     return ""
 
 
+def parse_time_cell_lenient(val):
+    """Мягкое чтение времени из ячейки «Время»: стандартные и нестандартные форматы.
+
+    Понимает: 8:42, 08:42:00, 8-42, 8.42, 8,42 (строка!), 8ч42м, 8 ч 42 мин,
+    8 42, 0842 (ЧЧММ), а также Excel-время дробью (0.3625 = 8:42) и типы
+    datetime.time / datetime.datetime.
+    """
+    if val is None or isinstance(val, bool):
+        return None
+    if isinstance(val, datetime.datetime):
+        return f"{val.hour:02d}:{val.minute:02d}"
+    if isinstance(val, datetime.time):
+        return f"{val.hour:02d}:{val.minute:02d}"
+    if isinstance(val, (int, float)):
+        v = float(val)
+        if 0 <= v < 1:  # Excel хранит время как дробную часть суток
+            total_min = round(v * 24 * 60)
+            if 0 <= total_min < 24 * 60:
+                return f"{total_min // 60:02d}:{total_min % 60:02d}"
+        return None
+    s = str(val).strip().lower().replace("мск", "").strip()
+    if not s:
+        return None
+    # 8:42:00 / 8:42 / 8-42 / 8.42 / 8,42
+    m = re.match(r"^([01]?\d|2[0-3])[.,:\-;]([0-5]\d)(?::[0-5]\d)?$", s)
+    if m:
+        return f"{int(m.group(1)):02d}:{m.group(2)}"
+    # 8ч42м / 8 ч 42 мин / 8ч 42мин
+    m = re.match(r"^([01]?\d|2[0-3])\s*ч\.?\s*([0-5]\d)\s*м", s)
+    if m:
+        return f"{int(m.group(1)):02d}:{m.group(2)}"
+    # 8 42 (время через пробел)
+    m = re.match(r"^([01]?\d|2[0-3])\s+([0-5]\d)$", s)
+    if m:
+        return f"{int(m.group(1)):02d}:{m.group(2)}"
+    # 0842 (ЧЧММ)
+    m = re.match(r"^([01]\d|2[0-3])([0-5]\d)$", s)
+    if m:
+        return f"{m.group(1)}:{m.group(2)}"
+    return None
+
+
 def parse_cell_datetime(val, default_year=2026, default_month=9):
     if val is None:
         return None
@@ -744,28 +786,26 @@ def extract_receipts_from_rows(rows: list, sheet_name: str, azs_locs: list, defa
 
         yy, mm, dd, t_str = dt_res
 
-        # Check separate time column or other cells for time if t_str not found yet
+        # Время чека: отдельная колонка «Время» — главный источник (нестандартные
+        # форматы поддерживает parse_time_cell_lenient). Время, «зашитое» в ячейку
+        # даты, используем только если колонки времени нет/она пустая.
+        t_str = None
+        if "time" in col_map and col_map["time"] < len(row):
+            t_str = parse_time_cell_lenient(row[col_map["time"]])
         if not t_str:
-            if "time" in col_map and col_map["time"] < len(row):
-                t_val = row[col_map["time"]]
-                if isinstance(t_val, (datetime.time, datetime.datetime)):
-                    t_str = f"{t_val.hour:02d}:{t_val.minute:02d}"
-                elif t_val is not None:
-                    tm = re.search(r"\b([01]?\d|2[0-3])[:\-]([0-5]\d)\b", str(t_val))
-                    if tm:
-                        t_str = f"{int(tm.group(1)):02d}:{tm.group(2)}"
-            if not t_str:
-                for c_idx, cell in enumerate(row):
-                    if c_idx == date_col_used or cell is None:
-                        continue
-                    if isinstance(cell, datetime.time):
-                        t_str = f"{cell.hour:02d}:{cell.minute:02d}"
-                        break
-                    s_c = str(cell).strip()
-                    if re.match(r"^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$", s_c):
-                        p_t = s_c.split(":")
-                        t_str = f"{int(p_t[0]):02d}:{p_t[1]}"
-                        break
+            t_str = dt_res[3]
+        if not t_str:
+            for c_idx, cell in enumerate(row):
+                if c_idx == date_col_used or cell is None:
+                    continue
+                if isinstance(cell, datetime.time):
+                    t_str = f"{cell.hour:02d}:{cell.minute:02d}"
+                    break
+                s_c = str(cell).strip()
+                if re.match(r"^([01]?\d|2[0-3]):([0-5]\d)(?::[0-5]\d)?$", s_c):
+                    p_t = s_c.split(":")
+                    t_str = f"{int(p_t[0]):02d}:{p_t[1]}"
+                    break
         if not t_str:
             t_str = "10:30"
 

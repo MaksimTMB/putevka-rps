@@ -1638,7 +1638,7 @@
     ];
 
     const state = {
-      appVersion: 'v7.2.3',
+      appVersion: 'v7.3.0',
       adminSetupCompleted: Boolean(RAW_INIT.adminSetupCompleted),
       currentTab: 'generator',
       users: RAW_INIT.users || [],
@@ -2780,6 +2780,102 @@
     }
 
     // =========================================================================
+    // ЗАПРАВОЧНЫЙ ВЫЕЗД ВЫХОДНОГО ДНЯ (v7.3.0)
+    // Чек АЗС, пришедшийся на субботу/воскресенье, — это отдельный короткий
+    // выезд «база → АЗС → база» со своим путевым листом. Прибытие на АЗС —
+    // ровно по времени чека, пауза на заправку реальная, километраж и время
+    // в пути — из гео-базы (те же функции, что и для рабочих маршрутов).
+    // =========================================================================
+    function isWeekendIsoDate(dateIso) {
+      const m = String(dateIso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return false;
+      const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      const wd = dt.getDay();
+      return wd === 0 || wd === 6; // Вс или Сб
+    }
+
+    function buildFuelTripDayLegs(baseAddr, azsAddr, azsTimeStr) {
+      const azsUse = (azsAddr && String(azsAddr).trim()) ? String(azsAddr).trim() : null;
+      const azsTargetMin = azsUse ? parseShiftTimeMin(azsTimeStr, 630) : 630;
+      const toAzs = calcPairKmAndDuration(baseAddr, azsUse);
+      const fromAzs = calcPairKmAndDuration(azsUse, baseAddr);
+      // Пауза на заправку: 5–14 минут (оплата, заправка, чек)
+      const dwell = 5 + Math.floor(Math.random() * 10);
+      const dep1 = Math.max(6 * 60, azsTargetMin - toAzs.dur); // выезд с базы: за реальное время пути до АЗС
+      const arr1 = azsTargetMin;                                // прибытие на АЗС ровно по чеку
+      const dep2 = arr1 + dwell;                                // выезд с АЗС после заправки
+      const arr2 = dep2 + fromAzs.dur;                          // возврат на базу
+      return [
+        {
+          from: baseAddr, to: azsUse, km: toAzs.km, dur: toAzs.dur, zone: 'GREEN',
+          is_azs: true, azs_arr_min: azsTargetMin,
+          dep: fmtShiftTimeMin(dep1), arr: fmtShiftTimeMin(arr1)
+        },
+        {
+          from: azsUse, to: baseAddr, km: fromAzs.km, dur: fromAzs.dur, zone: 'GREEN',
+          dep: fmtShiftTimeMin(dep2), arr: fmtShiftTimeMin(arr2)
+        }
+      ];
+    }
+
+    // Пересобрать заправочный выезд (после смены времени/АЗС) и пересчитать км
+    function refreshFuelTripDay(d, prof) {
+      if (!d || !d.is_fuel_trip) return;
+      d.legs = buildFuelTripDayLegs(prof.baseAddress, d.azs_addr, d.azs_time);
+      d.km = d.legs.reduce((s, l) => s + Math.max(0, parseInt(l.km, 10) || 0), 0);
+      d.city_km = d.legs.length ? Math.max(0, parseInt(d.legs[0].km, 10) || 0) : 0;
+      d.burned = +((d.km * d.eff_norm) / 100).toFixed(2);
+    }
+
+    // Создать объект дня «заправочный выезд выходного дня» по чеку
+    function createFuelTripDayObject(prof, per, rec) {
+      const m = String(rec.dateIso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if (!m) return null;
+      const wNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+      const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+      const effNorm = getSeasonalNormForMonth(prof, per.month);
+      const azsTime = rec.time || '10:30';
+      const legs = buildFuelTripDayLegs(prof.baseAddress, rec.azsAddr, azsTime);
+      const km = legs.reduce((s, l) => s + Math.max(0, parseInt(l.km, 10) || 0), 0);
+      return {
+        date: rec.dateIso,
+        date_ru: rec.dateRu || `${m[3]}.${m[2]}.${m[1]}`,
+        file_name: `${m[3]},${m[2]},${m[1]}.xlsx`,
+        weekday: wNames[dt.getDay()],
+        fuel_grade: rec.fuelGrade || prof.defaultFuelGrade || '92',
+        start_tank: per.startTank || 20.0,
+        refueled: 0.0,
+        tank_before_refuel: null,
+        tank_after_refuel: null,
+        azs_addr: rec.azsAddr || '',
+        azs_time: azsTime,
+        azs_note: '',
+        km,
+        city_km: Math.max(0, parseInt(legs[0].km, 10) || 0),
+        eff_norm: effNorm,
+        burned: +((km * effNorm) / 100).toFixed(2),
+        end_tank: per.startTank || 20.0,
+        excluded: false,
+        is_fuel_trip: true,
+        legs
+      };
+    }
+
+    // Фиксированный расход заправочных выездов в диапазоне дней [from, to) —
+    // окна между заправками обязаны учитывать его, чтобы бак «бился»
+    function fuelTripsBurnInRange(days, from, to, baseNorm) {
+      let sum = 0;
+      for (let k = from; k < to && k < days.length; k++) {
+        const d = days[k];
+        if (d && d.is_fuel_trip && !d.excluded) {
+          const tripKm = (d.legs || []).reduce((s, l) => s + Math.max(0, parseInt(l.km, 10) || 0), 0);
+          sum += (tripKm * baseNorm) / 100;
+        }
+      }
+      return sum;
+    }
+
+    // =========================================================================
     // ГЕНЕРАТОР РАЗНООБРАЗНЫХ ПРОБЕГОВ МЕЖДУ ЗАПРАВКАМИ И ВНУТРИ ОКОН
     // (ИСКЛЮЧАЕТ ОДИНАКОВЫЙ КИЛОМЕТРАЖ ОТ ЗАПРАВКИ К ЗАПРАВКЕ И ПО ДНЯМ)
     // =========================================================================
@@ -2985,7 +3081,7 @@
           if (Math.abs(winSums[i] - winSums[j]) <= 1) return true;
         }
       }
-      if (per.days.some(d => !d.excluded && hasTemplatedTimingsInDay(d))) return true;
+      if (per.days.some(d => !d.excluded && !d.is_fuel_trip && hasTemplatedTimingsInDay(d))) return true;
       return false;
     }
 
@@ -3049,8 +3145,12 @@
         const maxPossibleKmToday = Math.max(0, Math.floor((maxPossibleBurnToday * 100) / d.eff_norm));
 
         if (!Array.isArray(d.legs) || d.legs.length === 0) {
-          const fallbackKm = Math.max(2, Math.min(maxPossibleKmToday, 12));
-          d.legs = buildChainForTargetKm(prof.baseAddress, fallbackKm, state.locations.filter(l => l.active && (l.zone === 'GREEN' || l.zone === 'BLUE')), d.refueled > 0 ? d.azs_addr : null, 2, d.refueled > 0 ? d.azs_time : null);
+          if (d.is_fuel_trip) {
+            d.legs = buildFuelTripDayLegs(prof.baseAddress, d.refueled > 0 ? d.azs_addr : null, d.azs_time);
+          } else {
+            const fallbackKm = Math.max(2, Math.min(maxPossibleKmToday, 12));
+            d.legs = buildChainForTargetKm(prof.baseAddress, fallbackKm, state.locations.filter(l => l.active && (l.zone === 'GREEN' || l.zone === 'BLUE')), d.refueled > 0 ? d.azs_addr : null, 2, d.refueled > 0 ? d.azs_time : null);
+          }
         }
 
         let sumKm = d.legs.reduce((acc, l) => acc + Math.max(1, parseInt(l.km, 10) || 1), 0);
@@ -3090,7 +3190,8 @@
           }
         }
 
-        if (hasTemplatedTimingsInDay(d)) {
+        // Заправочный выезд имеет ровно 2 плеча «туда-обратно» — это норма, не «шаблон»
+        if (!d.is_fuel_trip && hasTemplatedTimingsInDay(d)) {
           recomputeDayLegTimings(prof, d);
         }
         d.km = d.legs.reduce((acc, l) => acc + Math.max(0, parseInt(l.km, 10) || 0), 0);
@@ -3158,13 +3259,15 @@
           ? Math.min(tankCap, tStart + days[0].refueled)
           : Math.min(tankCap, tStart + ((c > 0 && days[iStart].refueled > 0) ? days[iStart].refueled : 0));
         const maxWindowBurn = Math.max(0, windowStartFuel - minRes);
-        const totalWindowTargetBurn = Math.min(maxWindowBurn, Math.max(0, windowStartFuel - tEnd));
+        // Заправочные выезды выходных: фиксированный расход, дни не пересобираются
+        const fixedTripBurn = fuelTripsBurnInRange(days, iStart, iEnd, baseNorm);
+        const totalWindowTargetBurn = Math.max(0, Math.min(maxWindowBurn, Math.max(0, windowStartFuel - tEnd)) - fixedTripBurn);
 
         if (editedDayIdx >= iStart && editedDayIdx < iEnd) {
           const priorIndices = [];
           const subseqIndices = [];
           for (let k = iStart; k < iEnd; k++) {
-            if (days[k].excluded || k === editedDayIdx) continue;
+            if (days[k].excluded || days[k].is_fuel_trip || k === editedDayIdx) continue;
             if (k < editedDayIdx) priorIndices.push(k);
             else subseqIndices.push(k);
           }
@@ -3202,7 +3305,7 @@
         } else if (iStart > editedDayIdx) {
           const activeIndices = [];
           for (let k = iStart; k < iEnd; k++) {
-            if (!days[k].excluded) activeIndices.push(k);
+            if (!days[k].excluded && !days[k].is_fuel_trip) activeIndices.push(k);
           }
           if (activeIndices.length > 0) {
             const totalWinKm = Math.max(activeIndices.length * 6, Math.round((totalWindowTargetBurn * 100) / baseNorm));
@@ -3280,13 +3383,16 @@
         const windowStartFuel = Math.min(tankCap, tStart + vAdd);
         const maxWindowBurn = Math.max(0, windowStartFuel - minRes);
         const availBurn = Math.min(maxWindowBurn, Math.max(0, windowStartFuel - tEnd));
+        // Заправочные выезды выходных дней внутри окна имеют фиксированный пробег:
+        // их расход вычитаем из бюджета окна, сами дни не пересобираем.
+        const fixedTripBurn = fuelTripsBurnInRange(days, iStart, iEnd, baseNorm);
         const activeIndices = [];
         for (let k = iStart; k < iEnd; k++) {
-          if (!days[k].excluded) activeIndices.push(k);
+          if (!days[k].excluded && !days[k].is_fuel_trip) activeIndices.push(k);
         }
         if (!activeIndices.length) continue;
 
-        let totalWinKm = Math.max(activeIndices.length * 6, Math.round((availBurn * 100) / baseNorm));
+        let totalWinKm = Math.max(activeIndices.length * 6, Math.round(((availBurn - fixedTripBurn) * 100) / baseNorm));
         // Дополнительно гарантируем уникальность суммарного пробега окна относительно предыдущих окон месяца
         let guardW = 0;
         while (usedWinSums.some(prevW => Math.abs(prevW - totalWinKm) <= 2) && guardW < 20) {
@@ -3914,12 +4020,13 @@
         const hasRefuel = d.refueled > 0;
         const rowBg = isSelected
           ? 'bg-blue-100/90 font-bold'
-          : (hasRefuel ? 'bg-emerald-50/50 hover:bg-slate-100' : 'hover:bg-slate-50');
+          : (d.is_fuel_trip ? 'bg-amber-50/70 hover:bg-amber-100/60' : (hasRefuel ? 'bg-emerald-50/50 hover:bg-slate-100' : 'hover:bg-slate-50'));
         return `
           <tr onclick="selectDay(${idx})" class="cursor-pointer transition ${rowBg}">
             <td class="py-2.5 px-2.5 whitespace-nowrap">
               <span class="text-slate-900">${d.date_ru}</span>
               <span class="text-[10px] text-slate-500 ml-1">(${d.weekday})</span>
+              ${d.is_fuel_trip ? '<span class="ml-1 px-1.5 py-0.5 rounded bg-amber-200/80 text-amber-900 font-bold text-[10px] whitespace-nowrap">⛽ заправочный выезд</span>' : ''}
             </td>
             <td class="py-2.5 px-2 text-right text-slate-600">${d.start_tank.toFixed(1)}</td>
             <td class="py-2.5 px-2 text-right">
@@ -3979,8 +4086,9 @@
       document.getElementById('selectedDayTitle').textContent = `Путевой лист от ${d.date_ru} (${d.weekday})`;
       document.getElementById('selectedDayFuelBadge').textContent = `АИ-${d.fuel_grade}`;
       if (d.refueled > 0) {
-        document.getElementById('selectedDayRefuelNote').textContent =
-          `Заправка по чеку: +${d.refueled} л в ${d.azs_time} (${d.azs_addr})`;
+        document.getElementById('selectedDayRefuelNote').textContent = d.is_fuel_trip
+          ? `Выходной — заправочный выезд: +${d.refueled} л в ${d.azs_time} (${d.azs_addr})`
+          : `Заправка по чеку: +${d.refueled} л в ${d.azs_time} (${d.azs_addr})`;
       } else {
         const dayTimes = getDayDepArrTimes(prof, d);
         document.getElementById('selectedDayRefuelNote').textContent =
@@ -4022,7 +4130,7 @@
               <select onchange="onLegAddressChangeSafe(${lIdx}, 'to', this.value)" class="w-full bg-transparent text-xs focus:outline-none font-semibold text-slate-900">
                 ${toOpts}
               </select>
-              ${leg.is_azs ? '<div class="text-[10px] text-emerald-700 font-extrabold mt-0.5">⛽ заезд на заправку по чеку</div>' : ''}
+              ${leg.is_azs ? `<div class="text-[10px] text-emerald-700 font-extrabold mt-0.5">⛽ заезд на заправку по чеку${d.azs_time ? ' (' + d.azs_time + ')' : ''}</div>` : ''}
             </td>
             <td class="py-2 px-1.5 border-r border-slate-200 text-center">
               <input type="text" value="${leg.dep}" onchange="onLegFieldChangeSafe(${lIdx}, 'dep', this.value)" class="w-20 text-center rounded-lg border border-slate-300 px-2 py-1 text-xs font-medium" />
@@ -5396,6 +5504,8 @@
             d.refueled = +lv.toFixed(2);
           }
           if (elA) d.azs_addr = elA.value;
+          // Заправочный выезд выходного дня: пересобираем маршрут под новое время/АЗС
+          if (d.is_fuel_trip) refreshFuelTripDay(d, prof);
         }
       });
 
@@ -5432,7 +5542,14 @@
       d.azs_time = timeStr;
       d.fuel_grade = fuel;
       d.azs_addr = azsAddr;
-      d.azs_note = `Чек (${timeStr})`;
+      d.azs_note = isWeekendIsoDate(d.date)
+        ? `Выходной день (${d.weekday}) — заправочный выезд по чеку (${timeStr})`
+        : `Чек (${timeStr})`;
+      // Чек на субботу/воскресенье — это заправочный выезд «база → АЗС → база» со своим ПЛ
+      if (isWeekendIsoDate(d.date)) {
+        d.is_fuel_trip = true;
+        refreshFuelTripDay(d, prof);
+      }
 
       const curPer = getActivePeriodObj();
       rebalanceSinglePeriodObject(prof, curPer);
@@ -5447,22 +5564,32 @@
       const d = days[dayIdx];
       if (!d) return;
       const removedLiters = d.refueled;
+      const isTrip = !!d.is_fuel_trip;
       askDeleteConfirmation(
-        `Удаление чека АЗС от ${d.date_ru}`,
-        `Удалить чек заправки на ${removedLiters} л от ${d.date_ru} (${d.azs_addr || 'АЗС Роснефть'})? Маршруты и топливный баланс месяца будут автоматически пересчитаны.`,
+        isTrip ? `Удаление заправочного выезда (${d.date_ru})` : `Удаление чека АЗС от ${d.date_ru}`,
+        isTrip
+          ? `Удалить заправочный выезд выходного дня ${d.date_ru} (${d.weekday}): ${removedLiters} л, ${d.azs_addr || 'АЗС Роснефть'}? Выезд и его путевой лист будут убраны из месяца, топливный баланс пересчитан.`
+          : `Удалить чек заправки на ${removedLiters} л от ${d.date_ru} (${d.azs_addr || 'АЗС Роснефть'})? Маршруты и топливный баланс месяца будут автоматически пересчитаны.`,
         () => {
-          d.refueled = 0;
-          d.azs_time = '';
-          d.azs_addr = '';
-          d.azs_note = '';
-          d.tank_before_refuel = null;
-          d.tank_after_refuel = null;
-          d.legs = d.legs.map(l => { delete l.is_azs; delete l.azs_arr_min; return l; });
-
           const curPer = getActivePeriodObj();
+          if (isTrip && curPer) {
+            const realIdx = curPer.days.findIndex(x => x === d);
+            if (realIdx >= 0) curPer.days.splice(realIdx, 1);
+          } else {
+            d.refueled = 0;
+            d.azs_time = '';
+            d.azs_addr = '';
+            d.azs_note = '';
+            d.tank_before_refuel = null;
+            d.tank_after_refuel = null;
+            d.legs = d.legs.map(l => { delete l.is_azs; delete l.azs_arr_min; return l; });
+          }
+
           rebalanceSinglePeriodObject(prof, curPer);
           syncCrossMonthCarryOver(prof);
-          saveAllState(`Чек (${removedLiters} л от ${d.date_ru}) удален, маршруты месяца пересчитаны`);
+          saveAllState(isTrip
+            ? `Заправочный выезд ${d.date_ru} (${removedLiters} л) удален, баланс месяца пересчитан`
+            : `Чек (${removedLiters} л от ${d.date_ru}) удален, маршруты месяца пересчитаны`);
           safeRenderFuelUI();
         }
       );
@@ -5858,7 +5985,9 @@
         const per = prof.periods[pKey];
         if (!per || !Array.isArray(per.days)) continue;
 
-        // Очищаем старые заправки в этом периоде перед записью загруженной ведомости за этот месяц
+        // Очищаем старые заправки в этом периоде перед записью загруженной ведомости за этот месяц.
+        // Заправочные выезды выходных дней пересоздаются заново из файла — старые удаляем.
+        per.days = per.days.filter(d => !d.is_fuel_trip);
         per.days.forEach(d => {
           d.refueled = 0;
           d.azs_time = '';
@@ -5872,7 +6001,33 @@
         });
 
         items.forEach(rec => {
-          // Ищем день по точной дате; если чек пришелся на выходной (Сб/Вс), привязываем к ближайшему рабочему дню ПЛ
+          // Чек выходного дня (Сб/Вс): отдельный заправочный выезд «база → АЗС → база»
+          // со своим путевым листом. На рабочие дни такие чеки больше не переносятся.
+          if (isWeekendIsoDate(rec.dateIso)) {
+            let tripDay = per.days.find(d => d.date === rec.dateIso && d.is_fuel_trip);
+            if (!tripDay) {
+              tripDay = createFuelTripDayObject(prof, per, rec);
+              if (!tripDay) return;
+              per.days.push(tripDay);
+              per.days.sort((a, b) => a.date.localeCompare(b.date));
+            }
+            tripDay._impPurchase = (tripDay._impPurchase || 0) + (rec.isReturn ? 0 : Number(rec.liters || 0));
+            tripDay._impReturn = (tripDay._impReturn || 0) + (rec.isReturn ? Number(rec.liters || 0) : 0);
+            if (!rec.isReturn) {
+              // якорь маршрута — самый ранний чек этого выходного дня
+              const recMin = parseShiftTimeMin(rec.time || '', -1);
+              const curMin = tripDay.azs_time ? parseShiftTimeMin(tripDay.azs_time, 24 * 60 + 1) : (24 * 60 + 1);
+              if (recMin >= 0 && recMin < curMin) {
+                tripDay.azs_time = rec.time;
+                tripDay.fuel_grade = rec.fuelGrade || tripDay.fuel_grade || (prof.defaultFuelGrade || '92');
+                tripDay.azs_addr = rec.azsAddr || tripDay.azs_addr;
+              }
+            }
+            return;
+          }
+
+          // Рабочий день: ищем день по точной дате; если даты нет в ПЛ (праздник и т.п.) —
+          // привязываем к ближайшему рабочему дню
           let targetDay = per.days.find(d => d.date === rec.dateIso);
           let transferNote = '';
           if (!targetDay) {
@@ -5888,10 +6043,17 @@
           targetDay.excluded = false;
           targetDay._impPurchase = (targetDay._impPurchase || 0) + (rec.isReturn ? 0 : Number(rec.liters || 0));
           targetDay._impReturn = (targetDay._impReturn || 0) + (rec.isReturn ? Number(rec.liters || 0) : 0);
-          if (!rec.isReturn || !targetDay.azs_time) {
-            targetDay.azs_time = rec.time || targetDay.azs_time || '10:30';
-            targetDay.fuel_grade = rec.fuelGrade || targetDay.fuel_grade || (prof.defaultFuelGrade || '92');
-            targetDay.azs_addr = rec.azsAddr || targetDay.azs_addr;
+          if (!rec.isReturn) {
+            // несколько чеков за один рабочий день: маршрут строим по самому раннему времени
+            const recMin = parseShiftTimeMin(rec.time || '', -1);
+            const curMin = targetDay.azs_time ? parseShiftTimeMin(targetDay.azs_time, 24 * 60 + 1) : (24 * 60 + 1);
+            if (recMin >= 0 && recMin < curMin) {
+              targetDay.azs_time = rec.time;
+              targetDay.fuel_grade = rec.fuelGrade || targetDay.fuel_grade || (prof.defaultFuelGrade || '92');
+              targetDay.azs_addr = rec.azsAddr || targetDay.azs_addr;
+            }
+          } else if (!targetDay.azs_time) {
+            targetDay.azs_time = rec.time || '10:30';
           }
           if (transferNote) targetDay._impTransferNote = transferNote;
         });
@@ -5901,7 +6063,10 @@
             const net = +((d._impPurchase || 0) - (d._impReturn || 0)).toFixed(2);
             if (net > 0) {
               d.refueled = +Math.min(maxRefuel, Math.max(1, net)).toFixed(2);
-              if (d._impReturn > 0) {
+              if (d.is_fuel_trip) {
+                d.azs_note = `Выходной день (${d.weekday}) — заправочный выезд по чеку (${d.azs_time})`;
+                refreshFuelTripDay(d, prof);
+              } else if (d._impReturn > 0) {
                 d.azs_note = `По чеку с учетом возврата (${d._impPurchase} - ${d._impReturn} = ${d.refueled} л)`;
               } else if (d._impTransferNote) {
                 d.azs_note = d._impTransferNote;
@@ -5911,16 +6076,22 @@
               totalAppliedChecks += 1;
               totalAppliedLiters += d.refueled;
             } else {
-              d.refueled = 0;
-              d.azs_time = '';
-              d.azs_addr = '';
-              d.azs_note = '';
+              if (d.is_fuel_trip) {
+                // выезд существует только из-за чека: чека (по сути) нет — день убираем
+                d._impRemoveTrip = true;
+              } else {
+                d.refueled = 0;
+                d.azs_time = '';
+                d.azs_addr = '';
+                d.azs_note = '';
+              }
             }
             delete d._impPurchase;
             delete d._impReturn;
             delete d._impTransferNote;
           }
         });
+        per.days = per.days.filter(d => !d._impRemoveTrip);
 
         rebalanceSinglePeriodObject(prof, per);
         affectedPeriodKeys.push(pKey);
@@ -6880,8 +7051,17 @@
       (state.profiles || []).forEach(prof => {
         Object.values(prof.periods || {}).forEach(per => {
           if (!per || !Array.isArray(per.days) || !per.days.length) return;
+          // Заправочные выезды выходных: должен быть маршрут «база → АЗС → база»;
+          // если день испорчен — пересобираем напрямую (общий ребаланс их не трогает)
+          (per.days || []).forEach(d => {
+            if (d && d.is_fuel_trip && (d.refueled || 0) > 0) {
+              const okTrip = Array.isArray(d.legs) && d.legs.length === 2 && d.legs[0] && d.legs[0].is_azs;
+              if (!okTrip) { refreshFuelTripDay(d, prof); changed = true; }
+            }
+          });
           const needsAzs = per.days.some(d => {
             if (!((d.refueled || 0) > 0 && d.azs_addr)) return false;
+            if (d.is_fuel_trip) return false; // выезды проверены выше
             const legs = d.legs || [];
             const azsIdx = legs.findIndex(l => l && l.is_azs);
             if (azsIdx < 0) return true;
@@ -6993,7 +7173,7 @@ async function runGitHubAutoUpdate(){
   try {
     const r = await fetch("/api/update/apply",{method:"POST"});
     const d = await r.json();
-    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.2.3")));
+    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.0")));
     await waitForServerAndReload();
   } catch(e) {
     alert("Ошибка обновления: " + e.message);
