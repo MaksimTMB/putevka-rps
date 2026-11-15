@@ -6845,8 +6845,29 @@
       }
     }
 
+    // Автоматическая перестройка маршрутов (v7.2.1): если у дня есть чек АЗС,
+    // но в его маршруте нет заезда на АЗС (старые данные) — пересобираем маршруты месяца.
+    function migrateLegsToAzsRoutes() {
+      let changed = false;
+      (state.profiles || []).forEach(prof => {
+        Object.values(prof.periods || {}).forEach(per => {
+          if (!per || !Array.isArray(per.days) || !per.days.length) return;
+          const needsAzs = per.days.some(d =>
+            (d.refueled || 0) > 0 && d.azs_addr && !(d.legs || []).some(l => l && l.is_azs)
+          );
+          if (needsAzs) {
+            rebalanceSinglePeriodObject(prof, per);
+            syncCrossMonthCarryOver(prof);
+            changed = true;
+          }
+        });
+      });
+      return changed;
+    }
+
     window.addEventListener('DOMContentLoaded', async () => {
       await loadStateFromDatabaseOnStartup();
+      if (migrateLegsToAzsRoutes()) saveAllState('');
       renderHeaderTemplatesSelects();
       renderHeaderAndSelectors();
       syncSettingsInputs();
