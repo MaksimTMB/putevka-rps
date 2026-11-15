@@ -2380,9 +2380,10 @@
       }
       const hasAzsAnchor = azsIdx >= 0;
       if (hasAzsAnchor) {
-        // Смена подстраивается под время чека (в разумных пределах 7:00–20:30)
-        if (azsTargetMin - 20 < shiftStart) shiftStart = Math.max(7 * 60, azsTargetMin - 20);
-        if (azsTargetMin + 20 > shiftEnd) shiftEnd = Math.min(20 * 60 + 30, azsTargetMin + 20);
+        // Смена жёстко 9:00–18:00. Сдвигаем границы только если сам чек выходит за смену:
+        // заправка раньше 9:00 — выезжаем раньше; заправка позже 18:00 — возвращаемся позже.
+        if (azsTargetMin < shiftStart) shiftStart = Math.max(7 * 60, azsTargetMin - 20);
+        if (azsTargetMin > shiftEnd) shiftEnd = Math.min(20 * 60 + 30, azsTargetMin + 20);
         if (shiftEnd - shiftStart < 150) shiftEnd = Math.min(20 * 60 + 30, shiftStart + 150);
       }
 
@@ -2510,19 +2511,26 @@
         const D1 = driveMins.slice(0, azsIdx + 1).reduce((a, b) => a + b, 0);
         const D2 = driveMins.slice(azsIdx + 1).reduce((a, b) => a + b, 0);
 
-        // Утро: паузы на объектах подгоняются так, чтобы прибыть на АЗС ровно ко времени чека
+        // Утро: паузы на объектах подгоняются так, чтобы прибыть на АЗС ровно ко времени чека.
+        // День всегда начинается с shiftStart (9:00); время до заправки заполняется работой.
         const preSlots = dwellMins.slice(0, azsIdx);
         const preMin = preSlots.length * 8;
-        const preMax = preSlots.length * 100;
         let mornStart = shiftStart;
-        let wantPreSum = azsTargetMin - mornStart - D1;
-        if (wantPreSum < preMin) {
-          mornStart = Math.max(7 * 60, azsTargetMin - D1 - preMin);
-          wantPreSum = Math.max(preMin, azsTargetMin - mornStart - D1);
-        } else if (preSlots.length && wantPreSum > preMax) {
-          mornStart = Math.max(7 * 60, azsTargetMin - D1 - preMax);
-          wantPreSum = Math.max(preMin, azsTargetMin - mornStart - D1);
+        let preDriveTotal = D1;
+        if (azsTargetMin - mornStart - preDriveTotal < preMin) {
+          // Переезды до заправки длиннее, чем время до чека — сжимаем их, чтобы выехать ровно в 9:00.
+          let over = preMin - (azsTargetMin - mornStart - preDriveTotal);
+          for (let k = 0; k <= azsIdx && over > 0; k++) {
+            const cut = Math.min(over, Math.max(0, driveMins[k] - 4));
+            driveMins[k] -= cut; over -= cut;
+          }
+          preDriveTotal = driveMins.slice(0, azsIdx + 1).reduce((a, b) => a + b, 0);
         }
+        if (azsTargetMin - mornStart - preDriveTotal < preMin) {
+          // Даже после сжатия не помещается (заправка почти сразу после 9:00) — выезжаем чуть раньше.
+          mornStart = Math.max(7 * 60, azsTargetMin - preDriveTotal - preMin);
+        }
+        const wantPreSum = Math.max(preMin, azsTargetMin - mornStart - preDriveTotal);
         fitDwellSlotsInPlace(preSlots, wantPreSum);
         preSlots.forEach((v, i) => { dwellMins[i] = v; });
 
@@ -2530,16 +2538,19 @@
         const postStart = azsTargetMin + dwellMins[azsIdx];
         const postSlots = dwellMins.slice(azsIdx + 1);
         const postMin = postSlots.length * 8;
-        let endEff = Math.max(shiftEnd, postStart + D2 + postMin);
-        if (endEff > 20 * 60 + 30) {
-          endEff = 20 * 60 + 30;
-          let over = postStart + D2 + postMin - endEff;
+        // День заканчивается ровно в конец смены (18:00): вечер не растягиваем.
+        let endEff = shiftEnd;
+        let postDriveTotal = driveMins.slice(azsIdx + 1).reduce((a, b) => a + b, 0);
+        if (postStart + postDriveTotal + postMin > endEff) {
+          // Поздняя заправка: сжимаем переезды после АЗС, чтобы успеть к концу смены.
+          let over = postStart + postDriveTotal + postMin - endEff;
           for (let k = azsIdx + 1; k < n && over > 0; k++) {
-            const cut = Math.min(over, Math.max(0, driveMins[k] - 5));
+            const cut = Math.min(over, Math.max(0, driveMins[k] - 4));
             driveMins[k] -= cut; over -= cut;
           }
+          postDriveTotal = driveMins.slice(azsIdx + 1).reduce((a, b) => a + b, 0);
         }
-        const wantPostSum = Math.max(postMin, endEff - postStart - driveMins.slice(azsIdx + 1).reduce((a, b) => a + b, 0));
+        const wantPostSum = Math.max(postMin, endEff - postStart - postDriveTotal);
         fitDwellSlotsInPlace(postSlots, wantPostSum);
         postSlots.forEach((v, i) => { dwellMins[azsIdx + 1 + i] = v; });
 
@@ -2672,6 +2683,12 @@
         else if (targetKm <= 82) stopCandidates = [2, 3, 4, 5];
         else stopCandidates = [3, 4, 5, 6];
       }
+      // Заправка — промежуточная точка дня: нужна работа и до, и после АЗС,
+      // иначе маршрут схлопывается в «база → АЗС → база» и день начинается не с 9:00.
+      if (azsUse) {
+        stopCandidates = stopCandidates.filter(c => c >= 3);
+        if (!stopCandidates.length) stopCandidates = [3];
+      }
 
       let bestLegs = null;
       let bestDiff = 99999;
@@ -2682,7 +2699,8 @@
         let azsPos = -1;
         if (azsUse) {
           const frac = Math.max(0.06, Math.min(0.94, (azsTargetMin - 540) / 540));
-          azsPos = Math.min(nStops - 1, Math.max(0, Math.round(frac * (nStops - 1))));
+          // АЗС всегда между рабочими точками (не первая и не последняя), чтобы день шёл 9:00 → 18:00
+          azsPos = Math.min(nStops - 2, Math.max(1, Math.round(frac * Math.max(1, nStops - 1))));
         }
         const stops = [];
         for (let s = 0; s < nStops; s++) {
@@ -6845,16 +6863,26 @@
       }
     }
 
-    // Автоматическая перестройка маршрутов (v7.2.1): если у дня есть чек АЗС,
-    // но в его маршруте нет заезда на АЗС (старые данные) — пересобираем маршруты месяца.
+    // Автоматическая перестройка маршрутов (v7.2.1): пересобираем месяц, если у дня
+    // есть чек АЗС, но маршрут не соответствует правилу «заправка в середине дня»:
+    //  - нет заезда на АЗС вовсе (старые данные до v7.2.0);
+    //  - АЗС стоит первой или последней строкой, либо плеч меньше 4 — маршрут
+    //    схлопнулся в «база → АЗС → база» (день начинался не с 9:00, а обратное
+    //    плечо растягивалось до 18:00).
     function migrateLegsToAzsRoutes() {
       let changed = false;
       (state.profiles || []).forEach(prof => {
         Object.values(prof.periods || {}).forEach(per => {
           if (!per || !Array.isArray(per.days) || !per.days.length) return;
-          const needsAzs = per.days.some(d =>
-            (d.refueled || 0) > 0 && d.azs_addr && !(d.legs || []).some(l => l && l.is_azs)
-          );
+          const needsAzs = per.days.some(d => {
+            if (!((d.refueled || 0) > 0 && d.azs_addr)) return false;
+            const legs = d.legs || [];
+            const azsIdx = legs.findIndex(l => l && l.is_azs);
+            if (azsIdx < 0) return true;
+            if (legs.length < 4) return true;
+            if (azsIdx <= 0 || azsIdx >= legs.length - 1) return true;
+            return false;
+          });
           if (needsAzs) {
             rebalanceSinglePeriodObject(prof, per);
             syncCrossMonthCarryOver(prof);
