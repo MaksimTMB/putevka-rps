@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ПУТЁВКА v7.2.3 — Форма № 3 (ОКУД 0345001)</title>
+  <title>ПУТЁВКА v7.3.1 — Форма № 3 (ОКУД 0345001)</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -1638,7 +1638,7 @@
     ];
 
     const state = {
-      appVersion: 'v7.3.0',
+      appVersion: 'v7.3.1',
       adminSetupCompleted: Boolean(RAW_INIT.adminSetupCompleted),
       currentTab: 'generator',
       users: RAW_INIT.users || [],
@@ -7123,9 +7123,9 @@
           const r = await fetch('/api/update/apply', { method: 'POST' });
           const d = await r.json();
           alert(d.message || 'Обновление запущено.');
-          await waitForServerAndReload();
+          if (d.status === 'ok') await waitForServerAndReload(d.updatedTo);
         } catch (e) {
-          alert('Ошибка обновления: ' + e.message);
+          alert('Ошибка обновления: ' + e.message + '\n\nЕсли сервер уже перезапускается — просто обновите страницу (F5) через несколько секунд.');
         }
       })();
     }
@@ -7142,7 +7142,9 @@
     });
   </script>
 <script>
-async function waitForServerAndReload(){
+function _verTuple(v){ return String(v||'').split(/[.v]/).map(x=>parseInt(x,10)||0); }
+function _verGte(a,b){ const A=_verTuple(a),B=_verTuple(b); for(let i=0;i<3;i++){ const d=(A[i]||0)-(B[i]||0); if(d!==0) return d>0; } return true; }
+async function waitForServerAndReload(expectVersion){
   const overlay = document.createElement('div');
   overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(15,23,42,.94);color:#fff;display:flex;align-items:center;justify-content:center;font:600 15px/1.6 Arial,sans-serif;text-align:center;padding:28px';
   overlay.textContent = 'Обновление установлено. Ждём перезапуск программы…';
@@ -7151,7 +7153,11 @@ async function waitForServerAndReload(){
   while (Date.now() - started < 180000) {
     try {
       const r = await fetch("/api/version", {cache: "no-store"});
-      if (r.ok) { location.reload(); return; }
+      if (r.ok) {
+        // Ждём именно новую версию: старый процесс может ответить первые секунды
+        const v = await r.json();
+        if (!expectVersion || _verGte(v.version, expectVersion)) { location.reload(); return; }
+      }
     } catch(e) {}
     await new Promise(res => setTimeout(res, 1500));
     overlay.textContent = 'Обновление установлено. Ждём перезапуск программы… (' + Math.round((Date.now()-started)/1000) + ' сек)';
@@ -7173,10 +7179,10 @@ async function runGitHubAutoUpdate(){
   try {
     const r = await fetch("/api/update/apply",{method:"POST"});
     const d = await r.json();
-    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.0")));
-    await waitForServerAndReload();
+    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.1")));
+    if (d.status === 'ok') await waitForServerAndReload(d.updatedTo);
   } catch(e) {
-    alert("Ошибка обновления: " + e.message);
+    alert("Ошибка обновления: " + e.message + "\n\nЕсли сервер уже перезапускается — просто обновите страницу (F5) через несколько секунд.");
   }
 }
 </script></body>
