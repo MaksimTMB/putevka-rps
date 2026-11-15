@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.3.0"
+APP_VERSION = "v7.3.1"
 
-app = FastAPI(title="ПУТЁВКА v7.3.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.3.1 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1060,7 +1060,9 @@ def api_upd_check():
 
 def _schedule_server_restart():
     def _restart():
-        time.sleep(1.2)
+        # Пауза 4 секунды: ответ /api/update/apply и сообщение об обновлении
+        # должны успеть дойти до браузера ДО того, как сервер перезапустится.
+        time.sleep(4.0)
         try:
             os.execv(sys.executable, [sys.executable] + sys.argv)
         except Exception:
@@ -1114,25 +1116,72 @@ def api_upd_apply():
         except Exception:
             pass
 
-    updated, failed = [], []
+    # 1. Сначала скачиваем ВСЕ файлы во временные (до 3 попыток на файл).
+    #    Если хоть один не скачался — ничего не меняем (никаких «полуобновлений»).
+    downloaded = {}
+    failed = []
     for rel in UPDATE_FILES:
         url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/{rel}"
+        ok_file = None
+        for attempt in range(3):
+            try:
+                req = urllib.request.Request(url, headers={"User-Agent": "PutevkaUpdater/1.0"})
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    data = r.read()
+                if not data:
+                    raise RuntimeError("пустой файл")
+                tmp_path = os.path.join(BASE_DIR, rel + ".updtmp")
+                parent = os.path.dirname(tmp_path)
+                if parent:
+                    os.makedirs(parent, exist_ok=True)
+                with open(tmp_path, "wb") as f:
+                    f.write(data)
+                ok_file = tmp_path
+                break
+            except Exception:
+                continue
+        if ok_file:
+            downloaded[rel] = ok_file
+        else:
+            failed.append(rel)
+
+    if failed or not downloaded:
+        return {
+            'status': 'error',
+            'updatedTo': APP_VERSION,
+            'updated': [],
+            'failed': failed,
+            'message': ('Не удалось скачать файлы: ' + ', '.join(failed) +
+                        '. Обновление НЕ применено (программа работает прежней версией). '
+                        'Проверьте интернет и попробуйте ещё раз через минуту.'),
+        }
+
+    # 2. Все файлы на месте — заменяем. index.html последним: если что-то пойдёт не так,
+    #    страница останется согласована со старым кодом сервера до полной замены.
+    updated = []
+    ordered = [rel for rel in UPDATE_FILES if rel != 'static/index.html'] + ['static/index.html']
+    for rel in ordered:
+        if rel not in downloaded:
+            continue
+        dest = os.path.join(BASE_DIR, rel)
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "PutevkaUpdater/1.0"})
-            with urllib.request.urlopen(req, timeout=25) as r:
-                data = r.read()
-            dest = os.path.join(BASE_DIR, rel)
-            parent = os.path.dirname(dest)
-            if parent:
-                os.makedirs(parent, exist_ok=True)
-            with open(dest, "wb") as f:
-                f.write(data)
+            os.replace(downloaded[rel], dest)
             updated.append(rel)
         except Exception:
             failed.append(rel)
 
+    # Реальная установленная версия — из скачанного version.txt, а не из API релизов
+    real_version = latest
+    try:
+        with open(os.path.join(BASE_DIR, 'version.txt'), 'r', encoding='utf-8') as f:
+            real_version = 'v' + f.read().strip().lstrip('v')
+    except Exception:
+        pass
+
     if updated:
-        message = f'Обновлено файлов: {len(updated)}.'
+        message = f'Обновлено файлов: {len(updated)}. Версия: {real_version}.'
+        if failed:
+            message += ' Не заменены: ' + ', '.join(failed) + '.'
         if IS_FROZEN:
             if _replace_windows_exe():
                 message += ' Скачан новый exe. Приложение сейчас перезапустится с новой версией.'
@@ -1143,7 +1192,7 @@ def api_upd_apply():
             message += ' Сервер перезапускается с новой версией. Рабочая база сохранена.'
         return {
             'status': 'ok',
-            'updatedTo': latest,
+            'updatedTo': real_version,
             'updated': updated,
             'failed': failed,
             'message': message,
@@ -1153,7 +1202,7 @@ def api_upd_apply():
         'updatedTo': APP_VERSION,
         'updated': [],
         'failed': failed,
-        'message': 'Не удалось загрузить обновление. Проверьте доступ к интернету.',
+        'message': 'Не удалось заменить файлы программы. Обновление не применено.',
     }
 
 
