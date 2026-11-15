@@ -25,7 +25,7 @@ jobs:
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
 
           # 1. Проверка версии и сервера
-          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.2.0", "version.txt должен содержать 7.2.0"
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.2.1", "version.txt должен содержать 7.2.1"
           import server
           assert server.APP_VERSION == "v7.2.1", "server.APP_VERSION должен быть v7.2.1"
 
