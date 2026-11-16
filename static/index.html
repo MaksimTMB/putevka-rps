@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ПУТЁВКА v7.3.4 — Форма № 3 (ОКУД 0345001)</title>
+  <title>ПУТЁВКА v7.3.5 — Форма № 3 (ОКУД 0345001)</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -197,9 +197,11 @@
 
   <!-- ==================== БАННЕР «СТРАНИЦА УСТАРЕЛА» (v7.3.3) ====================
        Показывается, если версия открытой страницы не совпадает с версией сервера
-       (старая вкладка, кэш браузера). Клик по баннеру = обновить страницу. -->
-  <div id="stalePageBanner" onclick="location.reload()" class="hidden w-full bg-amber-400 hover:bg-amber-300 text-slate-900 text-center text-xs font-extrabold py-2.5 px-4 cursor-pointer transition select-none border-b-2 border-amber-500" title="Обновить страницу">
-    ⚠ Страница устарела: версия страницы <span id="stalePageVer" class="underline decoration-amber-700"></span>, сервер <span id="staleServerVer" class="underline decoration-amber-700"></span>. Нажмите сюда или клавишу F5, чтобы обновить страницу.
+       (старая вкладка, кэш браузера). v7.3.5: понимает НАПРАВЛЕНИЕ рассогласования:
+       страница старее сервера → клик/F5 обновляет; сервер старее страницы (полуобновление
+       exe-версии) → честная подсказка перезапустить программу с ярлыка или update.ps1. -->
+  <div id="stalePageBanner" onclick="staleBannerClick()" class="hidden w-full bg-amber-400 hover:bg-amber-300 text-slate-900 text-center text-xs font-extrabold py-2.5 px-4 cursor-pointer transition select-none border-b-2 border-amber-500" title="Обновить страницу">
+    <span id="stalePageMsg"></span>
   </div>
 
   <!-- ==================== ВЕРХНЯЯ ШАПКА (СТРОГО ПО ПОРЯДКУ) ==================== -->
@@ -215,7 +217,7 @@
         <div class="flex flex-wrap items-center gap-2">
           <span class="font-extrabold text-base sm:text-lg tracking-wide text-white">ПУТЁВКА</span>
           <button type="button" id="appVersionBadge" class="text-xs px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-bold cursor-default transition">
-            v7.3.4
+            v7.3.5
           </button>
           <span class="text-xs px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-medium">
             Форма № 3 (ОКУД 0345001)
@@ -1645,7 +1647,7 @@
     ];
 
     const state = {
-      appVersion: 'v7.3.4',
+      appVersion: 'v7.3.5',
       adminSetupCompleted: Boolean(RAW_INIT.adminSetupCompleted),
       currentTab: 'generator',
       users: RAW_INIT.users || [],
@@ -7166,6 +7168,25 @@
     // v7.3.3: детектор рассогласования «страница старее сервера» — причина «вернувшихся»
     // старых багов после обновления (бейдж берёт версию с сервера и выглядит правильным,
     // а логика в браузере — из старой страницы). state.appVersion — версия самой страницы.
+    // v7.3.5: плашка понимает направление. Страница старее сервера (обычный случай) → F5.
+    // Сервер старее страницы («полуобновление» exe-версии: файлы на диске новые, exe старый) →
+    // F5 бессмыслен, честно объясняем, как перезапустить программу.
+    function _cmpVer3(a, b) {
+      const A = String(a || '').split('.').map(x => parseInt(String(x).replace(/\D+/g, ''), 10) || 0);
+      const B = String(b || '').split('.').map(x => parseInt(String(x).replace(/\D+/g, ''), 10) || 0);
+      for (let i = 0; i < 3; i++) { const d = (A[i] || 0) - (B[i] || 0); if (d !== 0) return d; }
+      return 0;
+    }
+
+    function staleBannerClick() {
+      if (window._stalePageOlder === true) { location.reload(); return; }
+      alert('Обновление страницы (F5) здесь НЕ поможет: сама программа старее открытой страницы.\n\n' +
+        '1) Закройте это окно программы.\n' +
+        '2) Если в диспетчере задач остался процесс Putevka.exe — завершите его.\n' +
+        '3) Запустите «ПУТЁВКА» заново с ярлыка на Рабочем столе.\n\n' +
+        'Если версия в шапке не поменялась — правый клик по update.ps1 → «Выполнить с помощью PowerShell».');
+    }
+
     async function checkPageServerVersionMatch() {
       try {
         const r = await fetch('/api/version', { cache: 'no-store' });
@@ -7173,11 +7194,17 @@
         const v = await r.json();
         if (!v.version || v.version === state.appVersion) return;
         const banner = document.getElementById('stalePageBanner');
-        if (!banner) return;
-        const pageVerEl = document.getElementById('stalePageVer');
-        const srvVerEl = document.getElementById('staleServerVer');
-        if (pageVerEl) pageVerEl.textContent = state.appVersion;
-        if (srvVerEl) srvVerEl.textContent = v.version;
+        const msgEl = document.getElementById('stalePageMsg');
+        if (!banner || !msgEl) return;
+        const cmp = _cmpVer3(state.appVersion, v.version);
+        window._stalePageOlder = cmp < 0;
+        if (cmp < 0) {
+          banner.title = 'Обновить страницу';
+          msgEl.innerHTML = '⚠ Страница устарела: версия страницы <span class="underline decoration-amber-700">' + state.appVersion + '</span>, сервер <span class="underline decoration-amber-700">' + v.version + '</span>. Нажмите сюда или клавишу F5, чтобы обновить страницу.';
+        } else {
+          banner.title = 'Нажмите для подсказки';
+          msgEl.textContent = '⚠ Программа старее открытой страницы (страница ' + state.appVersion + ', программа ' + v.version + '). F5 не поможет: закройте окно, завершите процесс Putevka.exe в диспетчере задач и запустите «ПУТЁВКА» с ярлыка — либо запустите update.ps1. Нажмите сюда для подсказки.';
+        }
         banner.classList.remove('hidden');
       } catch (e) { /* сервер недоступен — молчим, об этом отдельно сообщает бейдж версии */ }
     }
@@ -7215,7 +7242,7 @@ async function waitForServerAndReload(expectVersion){
     await new Promise(res => setTimeout(res, 1500));
     overlay.textContent = 'Обновление установлено. Ждём перезапуск программы… (' + Math.round((Date.now()-started)/1000) + ' сек)';
   }
-  overlay.textContent = 'Программа не перезапустилась сама за 3 минуты. Закройте это окно и запустите «ПУТЁВКА» заново с ярлыка — новая версия уже установлена.';
+  overlay.textContent = 'Программа не перезапустилась сама за 3 минуты. Закройте это окно и запустите «ПУТЁВКА» заново с ярлыка. Если версия в шапке не поменялась — правый клик по update.ps1 → «Выполнить с помощью PowerShell».';
 }
 async function runGitHubAutoUpdate(){
   let prompt = "Проверить и установить последнее обновление из GitHub (MaksimTMB/putevka-rps) с сохранением рабочей БД?";
@@ -7234,7 +7261,7 @@ async function runGitHubAutoUpdate(){
   try {
     const r = await fetch("/api/update/apply",{method:"POST"});
     const d = await r.json();
-    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.4")));
+    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.5")));
     if (d.status === 'ok') await waitForServerAndReload(d.updatedTo);
   } catch(e) {
     alert("Ошибка обновления: " + e.message + "\n\nЕсли сервер уже перезапускается — просто обновите страницу (F5) через несколько секунд.");
