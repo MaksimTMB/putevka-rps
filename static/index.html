@@ -31,6 +31,32 @@
     body.driver-mode { padding-left: 0 !important; }
     @media print { body { padding-left: 0 !important; } #appSidebar { display: none !important; } }
 
+    /* ===== v8.0.0 (Шаг 1): Настройки приложения — выбор темы ===== */
+    .theme-opt {
+      display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+      padding: 0.9rem 0.75rem; border-radius: 0.8rem; border: 2px solid #e2e8f0;
+      background: #fff; cursor: pointer; font-weight: 700; font-size: 0.8rem; color: #0f172a;
+      transition: border-color .15s, background .15s; font-family: inherit;
+    }
+    .theme-opt:hover { border-color: #94a3b8; }
+    .theme-opt.theme-opt-active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+    .theme-opt .to-ico { font-size: 1.3rem; line-height: 1; }
+    /* Тёмная тема — перекраска светлых поверхностей и текста (черновик, доработаем в Шаге 6) */
+    html.dark { color-scheme: dark; }
+    html.dark body { background-color: #0b1220 !important; color: #e2e8f0 !important; }
+    html.dark .bg-white { background-color: #1e293b !important; }
+    html.dark .bg-slate-50 { background-color: #0f172a !important; }
+    html.dark .bg-slate-100 { background-color: #1e293b !important; }
+    html.dark .text-slate-900 { color: #e2e8f0 !important; }
+    html.dark .text-slate-800 { color: #e2e8f0 !important; }
+    html.dark .text-slate-700 { color: #cbd5e1 !important; }
+    html.dark .text-slate-600 { color: #94a3b8 !important; }
+    html.dark .border-slate-200 { border-color: #334155 !important; }
+    html.dark .border-slate-100 { border-color: #1e293b !important; }
+    html.dark .border-slate-300 { border-color: #334155 !important; }
+    html.dark .theme-opt { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+    html.dark .theme-opt.theme-opt-active { border-color: #3b82f6; background: #1e3a8a; color: #93c5fd; }
+
     /* Полное отключение стрелок вверх/вниз во всех числовых полях ввода */
     input[type="number"]::-webkit-outer-spin-button,
     input[type="number"]::-webkit-inner-spin-button {
@@ -117,6 +143,24 @@
       }
     }
   </style>
+  <script>
+    // v8 Шаг 1: применить сохранённую тему до отрисовки (без вспышки светлой темы)
+    (function () {
+      try {
+        var root = document.documentElement;
+        if (!root) return;
+        var theme = null;
+        try { theme = localStorage.getItem('putevka_theme'); } catch (e) {}
+        if (!theme) theme = 'light';
+        if (theme === 'system') {
+          var dark = false;
+          try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
+          theme = dark ? 'dark' : 'light';
+        }
+        if (theme === 'dark') root.classList.add('dark'); else root.classList.remove('dark');
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body class="min-h-screen flex flex-col lg:pl-64">
 
@@ -235,6 +279,7 @@
       <button type="button" class="sidebar-item" data-sidebar-tab="dwg" onclick="switchTab('dwg')"><span class="sb-ico">🗺️</span> Карты</button>
       <button type="button" class="sidebar-item" data-sidebar-tab="users" onclick="switchTab('users')"><span class="sb-ico">👥</span> Пользователи и профили</button>
       <div class="px-2 pt-3 pb-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Настройки</div>
+      <button type="button" class="sidebar-item" data-sidebar-tab="appsettings" onclick="switchTab('appsettings')"><span class="sb-ico">🎨</span> Настройки приложения</button>
       <button type="button" class="sidebar-item" data-sidebar-tab="settings" onclick="switchTab('settings')"><span class="sb-ico">⚙️</span> Шапка путевого листа</button>
     </nav>
     <div class="px-4 py-3 border-t border-slate-800 text-[10px] text-slate-500 font-semibold shrink-0">АСУ «ПУТЁВКА» • РПС</div>
@@ -350,6 +395,36 @@
           <span class="text-slate-500 block text-[11px]">Ответственные лица:</span>
           <b class="text-slate-900 text-xs" id="hdrRespInfo">—</b>
           <div class="text-[11px] text-slate-600 mt-0.5" id="hdrAccInfo">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== ОКНО 0: НАСТРОЙКИ ПРИЛОЖЕНИЯ (тема и будущие настройки интерфейса) ==================== -->
+    <section id="view-appsettings" class="hidden space-y-5">
+      <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+          <h2 class="text-lg font-extrabold text-slate-900">Настройки приложения</h2>
+          <span class="text-xs font-bold text-slate-500">интерфейс</span>
+        </div>
+
+        <div>
+          <div class="text-sm font-extrabold text-slate-900 mb-2">Тема оформления</div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <button type="button" id="themeOpt-light" onclick="setTheme('light')" class="theme-opt">
+              <span class="to-ico">☀️</span> Светлая
+            </button>
+            <button type="button" id="themeOpt-dark" onclick="setTheme('dark')" class="theme-opt">
+              <span class="to-ico">🌙</span> Тёмная
+            </button>
+            <button type="button" id="themeOpt-system" onclick="setTheme('system')" class="theme-opt">
+              <span class="to-ico">🖥️</span> Системная
+            </button>
+          </div>
+          <p class="text-xs text-slate-500 mt-2">Тема применяется сразу и запоминается в этом браузере.</p>
+        </div>
+
+        <div class="rounded-xl border border-dashed border-slate-300 p-4 text-xs text-slate-500">
+          Другие настройки интерфейса появятся здесь в следующих версиях (например, размер текста, компактный режим, поведение списков).
         </div>
       </div>
     </section>
@@ -2221,12 +2296,48 @@
       else sb.classList.add('-translate-x-full');
     }
 
+    // v8 Шаг 1: тема оформления (Настройки приложения). Хранится в localStorage этого браузера.
+    function applyTheme(theme) {
+      const root = document.documentElement;
+      if (!root) return;
+      let resolved = theme;
+      if (theme === 'system') {
+        let dark = false;
+        try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
+        resolved = dark ? 'dark' : 'light';
+      }
+      if (resolved === 'dark') root.classList.add('dark'); else root.classList.remove('dark');
+      try { root.setAttribute('data-theme', theme); } catch (e) {}
+    }
+    function setTheme(theme) {
+      try { localStorage.setItem('putevka_theme', theme); } catch (e) {}
+      applyTheme(theme);
+      renderAppSettingsTheme();
+    }
+    function initTheme() {
+      let saved = 'light';
+      try { saved = localStorage.getItem('putevka_theme') || 'light'; } catch (e) {}
+      applyTheme(saved);
+      renderAppSettingsTheme();
+    }
+    function renderAppSettingsTheme() {
+      let current = 'light';
+      try { current = localStorage.getItem('putevka_theme') || 'light'; } catch (e) {}
+      ['light', 'dark', 'system'].forEach(t => {
+        const btn = document.getElementById('themeOpt-' + t);
+        if (btn) {
+          if (current === t) btn.classList.add('theme-opt-active');
+          else btn.classList.remove('theme-opt-active');
+        }
+      });
+    }
+
     function switchTab(tab) {
       if (state.currentUser && state.currentUser.role !== 'admin') {
         return;
       }
       state.currentTab = tab;
-      const views = ['settings', 'generator', 'fuel', 'dwg', 'users', 'documents'];
+      const views = ['settings', 'appsettings', 'generator', 'fuel', 'dwg', 'users', 'documents'];
       views.forEach(t => {
         const viewEl = document.getElementById('view-' + t);
         if (viewEl) {
@@ -2252,6 +2363,8 @@
         renderHeaderTemplatesSelects();
         syncSettingsInputs();
         renderInlineSettingsHeaderPreview();
+      } else if (tab === 'appsettings') {
+        renderAppSettingsTheme();
       } else if (tab === 'generator') {
         renderHeaderAndSelectors();
         renderAllGeneratorViews();
@@ -7188,6 +7301,7 @@
     }
 
     window.addEventListener('DOMContentLoaded', async () => {
+      initTheme();
       await loadStateFromDatabaseOnStartup();
       if (migrateLegsToAzsRoutes()) saveAllState('');
       renderHeaderTemplatesSelects();

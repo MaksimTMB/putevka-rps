@@ -122,6 +122,34 @@
   .stat .v.green { color: #059669; }
   .stat .v.blue { color: #2563eb; }
   .hidden { display: none !important; }
+
+  /* Выбор темы */
+  .theme-opt {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 14px 10px; border-radius: 12px; border: 2px solid #e2e8f0;
+    background: #fff; cursor: pointer; font-weight: 700; font-size: 13px; color: #0f172a;
+    font-family: inherit;
+  }
+  .theme-opt:hover { border-color: #94a3b8; }
+  .theme-opt.active { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
+  .theme-opt .to-ico { font-size: 21px; line-height: 1; }
+
+  /* Тёмная тема (переключается кнопками в «Настройках приложения») */
+  body.dark { background: #0b1220; color: #e2e8f0; }
+  body.dark .card { background: #1e293b; border-color: #334155; }
+  body.dark .h2 { color: #e2e8f0; }
+  body.dark .label { color: #cbd5e1; }
+  body.dark .select { background: #0f172a; border-color: #3b82f6; color: #e2e8f0; }
+  body.dark .select-plain { border-color: #334155; background: #0f172a; }
+  body.dark .info { background: #0f172a; border-color: #334155; }
+  body.dark .info b { color: #e2e8f0; }
+  body.dark .info .k { color: #94a3b8; }
+  body.dark .stat { border-color: #334155; }
+  body.dark .stat .v { color: #e2e8f0; }
+  body.dark .stat .k { color: #94a3b8; }
+  body.dark .notice { background: #201a0b; border-color: #b45309; color: #fcd34d; }
+  body.dark .theme-opt { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+  body.dark .theme-opt.active { border-color: #3b82f6; background: #1e3a8a; color: #93c5fd; }
 </style>
 </head>
 <body>
@@ -145,6 +173,7 @@
       <button type="button" class="sb-item" data-tab="dwg" onclick="previewTab('dwg')"><span class="sb-ico">🗺️</span> Карты</button>
       <button type="button" class="sb-item" data-tab="users" onclick="previewTab('users')"><span class="sb-ico">👥</span> Пользователи и профили</button>
       <div class="sb-group">Настройки</div>
+      <button type="button" class="sb-item" data-tab="appsettings" onclick="previewTab('appsettings')"><span class="sb-ico">🎨</span> Настройки приложения</button>
       <button type="button" class="sb-item" data-tab="settings" onclick="previewTab('settings')"><span class="sb-ico">⚙️</span> Шапка путевого листа</button>
     </nav>
     <div class="sb-foot">АСУ «ПУТЁВКА» • РПС</div>
@@ -229,6 +258,20 @@
     <section data-panel="settings" class="hidden">
       <div class="card"><div class="h2">⚙️ Шапка путевого листа</div><div style="font-size:14px;color:#64748b;">Здесь будут шаблоны шапки, организация, авто, бак, водитель и предпросмотр А4.</div></div>
     </section>
+    <section data-panel="appsettings" class="hidden">
+      <div class="card">
+        <div class="h2">🎨 Настройки приложения</div>
+        <div class="label" style="margin-bottom:10px;">Тема оформления</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:14px;">
+          <button type="button" class="theme-opt" data-theme="light" onclick="previewTheme('light')"><span class="to-ico">☀️</span> Светлая</button>
+          <button type="button" class="theme-opt" data-theme="dark" onclick="previewTheme('dark')"><span class="to-ico">🌙</span> Тёмная</button>
+          <button type="button" class="theme-opt" data-theme="system" onclick="previewTheme('system')"><span class="to-ico">🖥️</span> Системная</button>
+        </div>
+        <div style="font-size:13px;color:#64748b;border:1px dashed #cbd5e1;border-radius:12px;padding:14px;">
+          Тема применяется сразу и запоминается в браузере. Другие настройки интерфейса появятся здесь в следующих версиях.
+        </div>
+      </div>
+    </section>
   </main>
 
 <script>
@@ -250,6 +293,38 @@
     }
     toggleSidebar(false);
   }
+
+  function themeResolved(theme) {
+    if (theme === 'system') {
+      var dark = false;
+      try { dark = !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); } catch (e) {}
+      return dark ? 'dark' : 'light';
+    }
+    return theme;
+  }
+  function previewTheme(theme) {
+    try { localStorage.setItem('putevka_theme', theme); } catch (e) {}
+    applyPreviewTheme(theme);
+    highlightThemeButtons(theme);
+  }
+  function applyPreviewTheme(theme) {
+    var resolved = themeResolved(theme);
+    if (resolved === 'dark') document.body.classList.add('dark');
+    else document.body.classList.remove('dark');
+  }
+  function highlightThemeButtons(theme) {
+    var btns = document.querySelectorAll('.theme-opt');
+    for (var i = 0; i < btns.length; i++) {
+      if (btns[i].getAttribute('data-theme') === theme) btns[i].classList.add('active');
+      else btns[i].classList.remove('active');
+    }
+  }
+  (function initTheme() {
+    var saved = 'light';
+    try { saved = localStorage.getItem('putevka_theme') || 'light'; } catch (e) {}
+    applyPreviewTheme(saved);
+    highlightThemeButtons(saved);
+  })();
 </script>
 </body>
 </html>
