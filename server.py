@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.3.2"
+APP_VERSION = "v7.3.3"
 
-app = FastAPI(title="ПУТЁВКА v7.3.2 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.3.3 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -467,7 +467,7 @@ def get_version():
     st = load_valid_state()
     return {
         "version": APP_VERSION,
-        "release_date": "2026-11-15",
+        "release_date": "2026-11-16",
         "has_saved_db": os.path.exists(DB_FILE),
         "adminSetupCompleted": bool(st.get("adminSetupCompleted", False)),
     }
@@ -1046,7 +1046,7 @@ def _version_tuple(v):
 def _fetch_latest_release():
     """Последний тег релиза с GitHub. Два источника + кэш 10 минут.
 
-    Возвращает тег (например 'v7.3.2'). Если ни один источник не ответил —
+    Возвращает тег (например 'v7.3.3'). Если ни один источник не ответил —
     возвращаем текущую APP_VERSION, но запоминаем в кэше, что проверка
     НЕ удалась (флаг ok=False), чтобы /api/update/check мог честно сказать
     «не удалось проверить», а не притворяться «актуальная версия».

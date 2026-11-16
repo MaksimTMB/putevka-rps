@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ПУТЁВКА v7.3.2 — Форма № 3 (ОКУД 0345001)</title>
+  <title>ПУТЁВКА v7.3.3 — Форма № 3 (ОКУД 0345001)</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -195,6 +195,13 @@
     </div>
   </div>
 
+  <!-- ==================== БАННЕР «СТРАНИЦА УСТАРЕЛА» (v7.3.3) ====================
+       Показывается, если версия открытой страницы не совпадает с версией сервера
+       (старая вкладка, кэш браузера). Клик по баннеру = обновить страницу. -->
+  <div id="stalePageBanner" onclick="location.reload()" class="hidden w-full bg-amber-400 hover:bg-amber-300 text-slate-900 text-center text-xs font-extrabold py-2.5 px-4 cursor-pointer transition select-none border-b-2 border-amber-500" title="Обновить страницу">
+    ⚠ Страница устарела: версия страницы <span id="stalePageVer" class="underline decoration-amber-700"></span>, сервер <span id="staleServerVer" class="underline decoration-amber-700"></span>. Нажмите сюда или клавишу F5, чтобы обновить страницу.
+  </div>
+
   <!-- ==================== ВЕРХНЯЯ ШАПКА (СТРОГО ПО ПОРЯДКУ) ==================== -->
   <!-- Слева: Название, Версия, Форма | По центру: Пользователь и его роль | Правее: Пользователи и роли | Правее всего: Вход-Выход -->
   <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
@@ -208,7 +215,7 @@
         <div class="flex flex-wrap items-center gap-2">
           <span class="font-extrabold text-base sm:text-lg tracking-wide text-white">ПУТЁВКА</span>
           <button type="button" id="appVersionBadge" class="text-xs px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-bold cursor-default transition">
-            v7.2.3
+            v7.3.3
           </button>
           <span class="text-xs px-2.5 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 font-medium">
             Форма № 3 (ОКУД 0345001)
@@ -1638,7 +1645,7 @@
     ];
 
     const state = {
-      appVersion: 'v7.3.2',
+      appVersion: 'v7.3.3',
       adminSetupCompleted: Boolean(RAW_INIT.adminSetupCompleted),
       currentTab: 'generator',
       users: RAW_INIT.users || [],
@@ -4407,14 +4414,14 @@
 
       const pKeys = getSortedPeriodKeys(prof);
       if (!pKeys.includes(state.currentMonthKey)) {
-        state.currentMonthKey = pKeys[0];
+        state.currentMonthKey = pKeys[0] || '';
       }
       const selM = document.getElementById('drvSelectMonth');
-      selM.innerHTML = pKeys.map(k => {
+      selM.innerHTML = pKeys.length ? pKeys.map(k => {
         const per = prof.periods[k];
         const actCount = (per.days || []).filter(x => !x.excluded).length;
         return `<option value="${k}" ${k === state.currentMonthKey ? 'selected' : ''}>${per.title} (${actCount} раб. дн.)</option>`;
-      }).join('');
+      }).join('') : '<option value="">— Периоды не созданы —</option>';
 
       const days = getCurrentMonthDays();
       const tbodyDays = document.getElementById('drvDaysTableBody');
@@ -4438,7 +4445,12 @@
         km: 0,
         city_km: 0,
         fuel_grade: prof.defaultFuelGrade || '92',
-        legs: []
+        legs: [],
+        // v7.3.3: поля ниже обязательны — иначе toFixed() падает на пустом профиле
+        start_tank: 0,
+        end_tank: 0,
+        refueled: 0,
+        azs_time: ''
       };
 
       document.getElementById('drvSelectedDayTitle').textContent = `Путевой лист от ${d.date_ru} (${d.weekday})`;
@@ -5324,22 +5336,26 @@
       renderAllGeneratorViews();
     }
 
+    // v7.3.3: последний месяц тоже можно удалить. Профиль без периодов — нормальное
+    // состояние: селекторы и таблицы показывают заглушки, новый месяц создаётся
+    // кнопкой «+ Добавить новый период» или загрузкой ведомости (.xlsx).
     function deletePeriodByKey(pKey) {
       const prof = getActiveProfile();
-      const keys = getSortedPeriodKeys(prof);
-      if (keys.length <= 1) {
-        showToast('Нельзя удалить единственный оставшийся период в профиле водителя (можно очистить его чеки)', true);
-        return;
-      }
-      const removedTitle = prof.periods[pKey] ? prof.periods[pKey].title : pKey;
+      if (!prof.periods[pKey]) return;
+      const removedTitle = prof.periods[pKey].title || pKey;
+      const isLast = getSortedPeriodKeys(prof).length <= 1;
       askDeleteConfirmation(
         `Удаление периода «${removedTitle}»`,
-        `Вы действительно хотите полностью удалить расчетный период «${removedTitle}» со всеми его маршрутами и чеками?`,
+        isLast
+          ? `Это последний расчетный период профиля. Удалить «${removedTitle}» со всеми его маршрутами и чеками? Профиль останется без месяцев — новый месяц можно будет создать кнопкой «+ Добавить новый период» или загрузкой ведомости (.xlsx).`
+          : `Вы действительно хотите полностью удалить расчетный период «${removedTitle}» со всеми его маршрутами и чеками?`,
         () => {
           delete prof.periods[pKey];
           const remKeys = getSortedPeriodKeys(prof);
-          state.currentMonthKey = remKeys[0];
-          state.selectedFuelYear = Number(prof.periods[state.currentMonthKey].year);
+          state.currentMonthKey = remKeys[0] || '';
+          if (state.currentMonthKey) {
+            state.selectedFuelYear = Number(prof.periods[state.currentMonthKey].year);
+          }
           state.selectedDayIndex = 0;
           syncCrossMonthCarryOver(prof);
           saveAllState(`Период «${removedTitle}» удален`);
@@ -7141,6 +7157,25 @@
       })();
     }
 
+    // v7.3.3: детектор рассогласования «страница старее сервера» — причина «вернувшихся»
+    // старых багов после обновления (бейдж берёт версию с сервера и выглядит правильным,
+    // а логика в браузере — из старой страницы). state.appVersion — версия самой страницы.
+    async function checkPageServerVersionMatch() {
+      try {
+        const r = await fetch('/api/version', { cache: 'no-store' });
+        if (!r.ok) return;
+        const v = await r.json();
+        if (!v.version || v.version === state.appVersion) return;
+        const banner = document.getElementById('stalePageBanner');
+        if (!banner) return;
+        const pageVerEl = document.getElementById('stalePageVer');
+        const srvVerEl = document.getElementById('staleServerVer');
+        if (pageVerEl) pageVerEl.textContent = state.appVersion;
+        if (srvVerEl) srvVerEl.textContent = v.version;
+        banner.classList.remove('hidden');
+      } catch (e) { /* сервер недоступен — молчим, об этом отдельно сообщает бейдж версии */ }
+    }
+
     window.addEventListener('DOMContentLoaded', async () => {
       await loadStateFromDatabaseOnStartup();
       if (migrateLegsToAzsRoutes()) saveAllState('');
@@ -7150,6 +7185,7 @@
       renderAllGeneratorViews();
       initAuthFlowOnStartup();
       refreshVersionBadge();
+      checkPageServerVersionMatch();
     });
   </script>
 <script>
@@ -7192,7 +7228,7 @@ async function runGitHubAutoUpdate(){
   try {
     const r = await fetch("/api/update/apply",{method:"POST"});
     const d = await r.json();
-    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.2")));
+    alert(d.message || ("Обновлено до " + (d.updatedTo || "v7.3.3")));
     if (d.status === 'ok') await waitForServerAndReload(d.updatedTo);
   } catch(e) {
     alert("Ошибка обновления: " + e.message + "\n\nЕсли сервер уже перезапускается — просто обновите страницу (F5) через несколько секунд.");
