@@ -1,4 +1,4 @@
-name: Build and Release v7.3.3
+name: Build and Release v7.3.4
 on:
   push:
     branches: [ main ]
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify and Publish v7.3.3
+      - name: Build Verify and Publish v7.3.4
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -25,9 +25,9 @@ jobs:
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
 
           # 1. Проверка версии и сервера
-          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.3.3", "version.txt должен содержать 7.3.3"
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.3.4", "version.txt должен содержать 7.3.4"
           import server
-          assert server.APP_VERSION == "v7.3.3", "server.APP_VERSION должен быть v7.3.3"
+          assert server.APP_VERSION == "v7.3.4", "server.APP_VERSION должен быть v7.3.4"
 
           # 2. Проверка синтаксиса JavaScript клиента
           h = pathlib.Path("static/index.html").read_text(encoding="utf-8")
@@ -42,30 +42,30 @@ jobs:
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
 
           # 4. Формирование архивов релиза
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_3_3.zip", "w", zipfile.ZIP_DEFLATED)
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_3_4.zip", "w", zipfile.ZIP_DEFLATED)
           for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]:
               if os.path.exists(f):
                   z1.write(f, os.path.basename(f))
           z1.close()
 
           srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v7_3_3.zip", "w", zipfile.ZIP_DEFLATED)
+          z2 = zipfile.ZipFile("putevka_server_v7_3_4.zip", "w", zipfile.ZIP_DEFLATED)
           for f in srv_files:
               if os.path.exists(f):
                   z2.write(f, f)
           z2.close()
 
           os.makedirs("releases", exist_ok=True)
-          shutil.copy2("putevka_server_v7_3_3.zip", "releases/putevka_server_v7_3_3.zip")
-          shutil.copy2("putevka_windows_desktop_app_v7_3_3.zip", "releases/putevka_windows_desktop_app_v7_3_3.zip")
+          shutil.copy2("putevka_server_v7_3_4.zip", "releases/putevka_server_v7_3_4.zip")
+          shutil.copy2("putevka_windows_desktop_app_v7_3_4.zip", "releases/putevka_windows_desktop_app_v7_3_4.zip")
 
           # 5. Синхронизация собранных пакетов обратно в репозиторий
           subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
           subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
           subprocess.run(["git", "add", "-A"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync v7.3.3 release packages [skip ci]"], check=False)
+          subprocess.run(["git", "commit", "-m", "Sync v7.3.4 release packages [skip ci]"], check=False)
           subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
 
           # 6. Публикация релиза GitHub
-          subprocess.run(["gh", "release", "delete", "v7.3.3", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.3.3", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_3_3.zip", "putevka_server_v7_3_3.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.3.3 — Удаление последнего месяца + детектор устаревшей страницы", "--notes", "Теперь можно удалить ЛЮБОЙ расчётный месяц, включая последний загруженный — раньше программа не давала («последний месяц не удаляется»). Профиль без месяцев — нормальное состояние, в каждом окне подсказка, как создать месяц заново. Добавлен жёлтый баннер «Страница устарела — нажмите F5»: если открытая страница старее сервера (старая вкладка или кэш браузера), программа честно об этом скажет — это лечит «вернувшиеся» старые баги после обновления.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "delete", "v7.3.4", "--yes", "--cleanup-tag"], check=False)
+          subprocess.run(["gh", "release", "create", "v7.3.4", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_3_4.zip", "putevka_server_v7_3_4.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.3.4 — Надёжный бейдж обновлений", "--notes", "Бейдж версии теперь кликабелен ВСЕГДА: зелёный («актуальная версия») тоже — нажатие проверяет обновления ещё раз и при желании принудительно переустанавливает файлы программы из GitHub. Раньше при сбойной проверке старая версия могла молча показать зелёный бейдж, и из окна обновиться было нельзя — только скриптом. Серый бейдж («проверка недоступна») при нажатии предлагает проверку и принудительное обновление. Добавлен третий источник проверки версии (raw.githubusercontent.com) — обновление видно, даже когда недоступны API и сам сайт GitHub.", "--latest"], check=True)

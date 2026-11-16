@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.3.3"
+APP_VERSION = "v7.3.4"
 
-app = FastAPI(title="ПУТЁВКА v7.3.3 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.3.4 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1046,7 +1046,7 @@ def _version_tuple(v):
 def _fetch_latest_release():
     """Последний тег релиза с GitHub. Два источника + кэш 10 минут.
 
-    Возвращает тег (например 'v7.3.3'). Если ни один источник не ответил —
+    Возвращает тег (например 'v7.3.4'). Если ни один источник не ответил —
     возвращаем текущую APP_VERSION, но запоминаем в кэше, что проверка
     НЕ удалась (флаг ok=False), чтобы /api/update/check мог честно сказать
     «не удалось проверить», а не притворяться «актуальная версия».
@@ -1080,6 +1080,22 @@ def _fetch_latest_release():
                 m = re.search(r"/tag/(v\d+\.\d+\.\d+)$", str(r.url))
                 if m:
                     tag, ok = m.group(1), True
+        except Exception:
+            pass
+    # Способ 3 (v7.3.4): версия из raw version.txt — другой домен GitHub,
+    # работает даже когда недоступны API и сам сайт; тот же источник, откуда
+    # качаются файлы обновления (/api/update/apply).
+    if not ok:
+        try:
+            req = urllib.request.Request(
+                f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/version.txt",
+                headers={"User-Agent": "PutevkaUpdater/1.0"},
+            )
+            with urllib.request.urlopen(req, timeout=8) as r:
+                t = r.read().decode("utf-8", "ignore").strip()
+                m = re.match(r"^v?(\d+\.\d+\.\d+)$", t)
+                if m:
+                    tag, ok = "v" + m.group(1), True
         except Exception:
             pass
 
