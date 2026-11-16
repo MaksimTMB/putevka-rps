@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v7.3.4"
+APP_VERSION = "v7.3.5"
 
-app = FastAPI(title="ПУТЁВКА v7.3.4 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v7.3.5 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -456,8 +456,22 @@ def generate_xlsx_bytes(prof: dict, days_list: list, schema: dict) -> bytes:
 
 @app.get("/")
 def index():
+    # v7.3.5: в exe-версии страница ВСЕГДА из комплекта самого exe — версия страницы
+    # совпадает с версией сервера «по построению», и «наполовину обновлённое» состояние
+    # (новые файлы на диске при старом exe) больше не может показать жёлтый баннер.
+    if IS_FROZEN:
+        candidates = [
+            os.path.join(BUNDLE_DIR, "static", "index.html"),
+            os.path.join(BASE_DIR, "static", "index.html"),
+        ]
+    else:
+        candidates = [
+            os.path.join(BASE_DIR, "static", "index.html"),
+            os.path.join(BUNDLE_DIR, "static", "index.html"),
+        ]
+    page_path = next((p for p in candidates if os.path.exists(p)), candidates[0])
     return FileResponse(
-        os.path.join(BUNDLE_DIR if not os.path.exists(os.path.join(BASE_DIR, "static", "index.html")) else BASE_DIR, "static", "index.html"),
+        page_path,
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
     )
 
@@ -1046,7 +1060,7 @@ def _version_tuple(v):
 def _fetch_latest_release():
     """Последний тег релиза с GitHub. Два источника + кэш 10 минут.
 
-    Возвращает тег (например 'v7.3.4'). Если ни один источник не ответил —
+    Возвращает тег (например 'v7.3.5'). Если ни один источник не ответил —
     возвращаем текущую APP_VERSION, но запоминаем в кэше, что проверка
     НЕ удалась (флаг ok=False), чтобы /api/update/check мог честно сказать
     «не удалось проверить», а не притворяться «актуальная версия».
@@ -1139,16 +1153,38 @@ def _schedule_server_restart():
     threading.Thread(target=_restart, daemon=True).start()
 
 
-def _replace_windows_exe():
+def _download_new_exe(timeout=180):
+    """v7.3.5: скачивает новый Putevka.exe рядом с текущим (Putevka.exe.new).
+
+    До 3 попыток. Возвращает путь к скачанному файлу или None.
+    Вынос в отдельную функцию нужен, чтобы при обновлении exe-версии качать
+    новый exe ЗАРАНЕЕ: если не скачался — обновление вообще не начинаем.
+    """
+    exe_path = sys.executable
+    new_path = exe_path + ".new"
+    url = f"https://github.com/{UPDATE_REPO}/releases/latest/download/Putevka.exe"
+    for _ in range(3):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "PutevkaUpdater/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                content = r.read()
+            if not content or len(content) < 1_000_000:
+                raise RuntimeError("скачанный exe подозрительно мал")
+            with open(new_path, "wb") as f:
+                f.write(content)
+            return new_path
+        except Exception:
+            continue
+    return None
+
+
+def _replace_windows_exe(new_path=None):
     try:
         exe_path = sys.executable
-        new_path = exe_path + ".new"
-        url = f"https://github.com/{UPDATE_REPO}/releases/latest/download/Putevka.exe"
-        req = urllib.request.Request(url, headers={"User-Agent": "PutevkaUpdater/1.0"})
-        with urllib.request.urlopen(req, timeout=180) as r:
-            content = r.read()
-        with open(new_path, "wb") as f:
-            f.write(content)
+        if not new_path or not os.path.exists(new_path):
+            new_path = _download_new_exe()
+        if not new_path:
+            return False
         log_path = os.path.join(os.path.dirname(exe_path), "update.log")
         bat = exe_path + ".update.bat"
         with open(bat, "w", encoding="utf-8") as f:
@@ -1184,6 +1220,25 @@ def api_upd_apply():
             shutil.copy2(DB_FILE, DB_FILE + ".backup.json")
         except Exception:
             pass
+
+    # v7.3.5: в exe-версии СНАЧАЛА скачиваем новый exe. Если он не скачался —
+    # обновление не начинаем вовсе. Раньше файлы на диске обновлялись, а exe мог
+    # не замениться/не перезапуститься → «наполовину обновлённое» состояние:
+    # новая страница на диске при старом сервере в памяти (жёлтый баннер, F5 не помогает).
+    pre_exe = None
+    if IS_FROZEN:
+        pre_exe = _download_new_exe()
+        if not pre_exe:
+            return {
+                'status': 'error',
+                'updatedTo': APP_VERSION,
+                'updated': [],
+                'failed': ['Putevka.exe'],
+                'message': ('Не удалось скачать новый файл программы (Putevka.exe). '
+                            'Обновление НЕ применено — программа продолжает работать прежней версией без изменений. '
+                            'Проверьте интернет и попробуйте ещё раз через минуту, либо запустите update.ps1 '
+                            '(правый клик → «Выполнить с помощью PowerShell»).'),
+            }
 
     # 1. Сначала скачиваем ВСЕ файлы во временные (до 3 попыток на файл).
     #    Если хоть один не скачался — ничего не меняем (никаких «полуобновлений»).
@@ -1252,7 +1307,7 @@ def api_upd_apply():
         if failed:
             message += ' Не заменены: ' + ', '.join(failed) + '.'
         if IS_FROZEN:
-            if _replace_windows_exe():
+            if _replace_windows_exe(pre_exe):
                 message += ' Скачан новый exe. Приложение сейчас перезапустится с новой версией.'
             else:
                 message += ' Перезапустите приложение, чтобы изменения вступили в силу. Рабочая база сохранена.'
