@@ -3569,20 +3569,24 @@
     function deleteSelectedHeaderTemplate() {
       const sel = document.getElementById('headerTemplateSelect');
       if (!sel || !sel.value) return;
-      if (state.headerTemplates.length <= 1) {
-        showToast('В системе должен оставаться хотя бы один базовый шаблон шапки', true);
-        return;
-      }
       const idx = state.headerTemplates.findIndex(t => t.id === sel.value);
       if (idx < 0) return;
       const tpl = state.headerTemplates[idx];
+      // v7.3.4: последний шаблон тоже можно удалить — «базовых» шаблонов не существует,
+      // все шаблоны создаёт пользователь. Пустой список — штатное состояние
+      // (селекторы показывают «Нет сохраненных шаблонов», новый создаётся кнопкой сохранения).
+      const isLast = state.headerTemplates.length <= 1;
       askDeleteConfirmation(
         'Удаление шаблона шапки',
-        `Вы действительно хотите удалить шаблон шапки «${tpl.name}»?`,
+        isLast
+          ? `Удалить шаблон шапки «${tpl.name}»? Это последний сохраненный шаблон — список останется пустым. Сама форма путевого листа (ОКУД 0345001) НЕ удаляется: новый шаблон всегда можно создать, заполнив поля шапки и нажав «Сохранить текущий как новый».`
+          : `Вы действительно хотите удалить шаблон шапки «${tpl.name}»?`,
         () => {
           state.headerTemplates.splice(idx, 1);
-          renderHeaderTemplatesSelects();
+          // Сначала сохраняем данные, потом перерисовываем (урок v7.2.0:
+          // ошибка перерисовки не должна отменять удаление)
           saveAllState(`Шаблон шапки «${tpl.name}» удален`);
+          renderHeaderTemplatesSelects();
         }
       );
     }
