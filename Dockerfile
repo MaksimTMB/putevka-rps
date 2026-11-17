@@ -7,5 +7,6 @@ RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir -r re
 COPY . .
 RUN cp -n data/app_data.json data/putevka_db.json || true
 
+ENV PUTEVKA_HOST=0.0.0.0 PUTEVKA_PORT=8080
 EXPOSE 8080
 CMD ["python", "server.py"]

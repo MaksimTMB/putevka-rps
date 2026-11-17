@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.1.1"
+APP_VERSION = "v8.1.2"
 
-app = FastAPI(title="ПУТЁВКА v8.1.1 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.1.2 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1048,10 +1048,6 @@ def export_xlsx(payload: dict = Body(...)):
 
 app.mount("/static", StaticFiles(directory=os.path.join(BUNDLE_DIR if not os.path.exists(os.path.join(BASE_DIR, "static")) else BASE_DIR, "static")), name="static")
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8080)
-
 UPDATE_REPO = "MaksimTMB/putevka-rps"
 UPDATE_FILES = ["version.txt", "server.py", "desktop_app.py", "requirements.txt", "static/index.html", "data/app_data.json"]
 
@@ -1889,3 +1885,17 @@ def documents_delete(payload: dict = Body(...)):
         except Exception:
             pass
     return {"status": "ok"}
+
+
+# v8.1.2: запуск — СТРОГО в самом конце файла. Раньше этот блок стоял посередине, и при
+# запуске «python server.py» (серверная версия: systemd, Docker) всё, что ниже него,
+# не успевало подключиться: проверка обновлений и весь раздел «Документы» отвечали 404.
+# Адрес и порт — из окружения (PUTEVKA_HOST / PUTEVKA_PORT или PORT), по умолчанию как раньше.
+if __name__ == "__main__":
+    import uvicorn
+    _host = os.environ.get("PUTEVKA_HOST") or "127.0.0.1"
+    try:
+        _port = int(os.environ.get("PUTEVKA_PORT") or os.environ.get("PORT") or 8080)
+    except ValueError:
+        _port = 8080
+    uvicorn.run(app, host=_host, port=_port)
