@@ -2420,7 +2420,7 @@
       const bar = document.createElement('div');
       bar.id = 'chainFixBanner';
       bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:16px;z-index:9000;max-width:min(760px,calc(100vw - 32px));background:#fffbeb;color:#78350f;border:1px solid #f59e0b;border-radius:14px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.18);font:600 13px/1.45 system-ui,sans-serif;display:flex;gap:12px;align-items:center;flex-wrap:wrap';
-      bar.innerHTML = `<span style="flex:1;min-width:220px">⚠ Остаток на 1 число не совпадает с остатком на конец прошлого месяца (или нарушен баланс дня): <b>${htmlEsc(names)}</b>. Такие месяцы нельзя печатать, пока цепочка не пересчитана.</span>`;
+      bar.innerHTML = `<span style="flex:1;min-width:220px">⚠ В расчёте топлива есть нарушения (чек не помещается в бак в момент заправки, остаток на 1 число ≠ концу прошлого месяца или баланс дня): <b>${htmlEsc(names)}</b>. Такие месяцы нельзя печатать, пока цепочка не пересчитана.</span>`;
       const btn = document.createElement('button');
       btn.type = 'button'; btn.className = 'btn btn-primary btn-sm'; btn.textContent = 'Пересчитать цепочку';
       btn.onclick = async () => {
@@ -3828,6 +3828,207 @@
       return +(Math.max(1, Number(tankCap) - 0.5)).toFixed(2);
     }
 
+    // =========================================================================
+    // v8.2.0: ЗАПРАВКА В МОМЕНТ ЧЕКА. Чек — факт (литры и время из ведомости АЗС), поэтому в момент
+    // заправки «остаток утром − сожжённое по маршруту до АЗС» не может быть меньше нуля, а вместе с чеком —
+    // больше бака. Раньше «до АЗС» рисовалось по шаблону, а при переливе удлинялся только сам день
+    // заправки ровно до полного бака (отсюда «65,0» после заправок), и дни перед заправкой оставляли
+    // лишнее топливо. Теперь перелив гасится пробегом В ДНЯХ ПЕРЕД заправкой (не хватило — в конце
+    // прошлого месяца), «до/после АЗС» считается по маршруту, а печать проверяет и это.
+    // =========================================================================
+    // Километры дня до заправки включительно: плечи до АЗС (по отметке в маршруте или по времени чека)
+    function preRefuelKm(d) {
+      const legs = (d && Array.isArray(d.legs)) ? d.legs : [];
+      if (!legs.length || d.excluded) return 0;
+      const sumTo = idx => legs.slice(0, idx + 1).reduce((s, l) => s + Math.max(0, parseInt(l.km, 10) || 0), 0);
+      const ai = legs.findIndex(l => l && l.is_azs);
+      if (ai >= 0) return sumTo(ai);
+      const t = parseShiftTimeMin(d.azs_time, -1);
+      if (t < 0) return 0;
+      let last = -1;
+      legs.forEach((l, i) => { if (parseShiftTimeMin(l && l.arr, 99999) <= t) last = i; });
+      return last >= 0 ? sumTo(last) : 0;
+    }
+
+    // В баке в момент заправки (до чека), по маршруту
+    function refuelMomentLevel(d) {
+      const pre = (preRefuelKm(d) * (Number(d.eff_norm) || 0)) / 100;
+      return +(Number(d.start_tank) - Math.min(pre, Number(d.burned) || 0)).toFixed(2);
+    }
+
+    // Пределы остатка в момент заправки. Запас до полного бака 1,5…6 л — свой у каждого чека
+    // (от даты и литров, а не случайный — повторный пересчёт не «дёргает» маршруты)
+    function refuelBounds(d, v, cap, minRes) {
+      const key = `${d.date_ru || d.date_iso || ''}|${v}`;
+      let h = 7;
+      for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+      const headroom = 1.5 + (h % 46) / 10;
+      const pick = ((h >>> 7) % 1000) / 1000;
+      const room = cap - v;                                          // больше — чек физически не влезает
+      const lo = Math.max(0.3, Math.min(minRes, room * 0.5));        // ниже — «приехал на заправку на пустом»
+      // выше — бак «под пробку»; коридор не уже 1 л (пробег — целые км), но и не выше «влезает»
+      const hi = +Math.max(Math.min(room, lo + 1), room - headroom).toFixed(2);
+      return {
+        lo, hi,
+        // если окно перед заправкой приходится пересобирать — перед заправкой бак скорее пустой, чем полный
+        tgtHigh: +Math.max(lo, Math.min(hi, minRes + 2 + pick * 10)).toFixed(2),
+        tgtLow: +Math.max(lo, Math.min(hi, lo + 1 + pick * 3)).toFixed(2)
+      };
+    }
+
+    // Пересобрать пробег свободных дней adj так, чтобы сжечь на deltaFuel л больше (< 0 — меньше)
+    function setWindowKmByFuel(prof, per, adj, deltaFuel, unit, workLocs) {
+      if (!adj.length) return false;
+      const days = per.days;
+      const curKm = adj.reduce((acc, k) => acc + (Number(days[k].km) || 0), 0);
+      const minKm = Math.min(curKm, adj.length * 6), maxKm = Math.max(curKm, adj.length * 140);
+      const newKm = Math.max(minKm, Math.min(maxKm, curKm + Math.round(deltaFuel / unit)));
+      if (newKm === curKm) return false;
+      const others = days.filter((x, i) => !adj.includes(i) && !x.excluded).map(x => Number(x.km) || 0);
+      const prevKm = adj[0] > 0 ? (Number(days[adj[0] - 1].km) || -1) : -1;
+      const kms = splitWindowKmVaried(adj.length, newKm, prevKm, others);
+      adj.forEach((k, j) => {
+        const d = days[k];
+        const old = Number(d.km) || 0;
+        // число строк маршрута сохраняем, если пробег дня меняется не вдвое
+        const keep = (Array.isArray(d.legs) && d.legs.length >= 2 && kms[j] <= old * 1.6 + 10 && kms[j] >= old * 0.6) ? d.legs.length : null;
+        d.legs = buildChainForTargetKm(prof.baseAddress, kms[j], workLocs, null, keep, null);
+      });
+      enforceStrictFuelPhysics(prof, per);
+      return true;
+    }
+
+    // Добавить (add > 0) или убрать километры в плечах from..to дня — сначала в самых длинных
+    function stretchLegsKm(prof, d, from, to, add) {
+      if (!Array.isArray(d.legs) || from > to || !add) return 0;
+      const idx = [];
+      for (let i = Math.max(0, from); i <= Math.min(to, d.legs.length - 1); i++) idx.push(i);
+      if (!idx.length) return 0;
+      idx.sort((a, b) => (parseInt(d.legs[b].km, 10) || 0) - (parseInt(d.legs[a].km, 10) || 0));
+      let left = Math.abs(add), done = 0, guard = 0;
+      while (left > 0 && guard < 5000) {
+        let moved = false;
+        for (const i of idx) {
+          if (left <= 0) break;
+          const km = parseInt(d.legs[i].km, 10) || 1;
+          if (add > 0 ? km < 150 : km > 1) { d.legs[i].km = km + (add > 0 ? 1 : -1); left--; done++; moved = true; }
+        }
+        if (!moved) break;
+        guard++;
+      }
+      if (done) recomputeDayLegTimings(prof, d);
+      return done;
+    }
+
+    // Подогнать окна перед заправками месяца. protect — дни, которые трогать нельзя (кроме ручных правок).
+    // Возвращает, сколько топлива первое окно месяца не смогло сжечь (его гасит конец прошлого месяца).
+    // stretchFirst = false — в первом окне месяца не удлинять сам день заправки (сначала конец прошлого месяца).
+    function fitRefuelWindows(prof, per, protect = null, stretchFirst = true) {
+      const res = { firstNeed: 0, firstWant: 0, fixes: 0 };
+      if (!per || !Array.isArray(per.days) || !per.days.length) return res;
+      enforceStrictFuelPhysics(prof, per);
+      const days = per.days;
+      const cap = Math.max(30, Math.min(200, Number(prof.tankCap) || 70));
+      const minRes = Math.max(2, Math.min(cap * 0.45, Number(prof.minReserve) || 8.0));
+      const unit = Math.max(4, Math.min(45, getSeasonalNormForMonth(prof, per.month))) / 100;
+      const workLocs = state.locations.filter(l => l.active && (l.zone === 'GREEN' || l.zone === 'BLUE'));
+      const free = d => d && !d.excluded && !d.is_fuel_trip && !d.routeEdited && !(protect && protect.has(d));
+      let prevR = -1;
+      for (let r = 0; r < days.length; r++) {
+        const v = Number(days[r].refueled) || 0;
+        if (!(v > 0)) continue;
+        const b = refuelBounds(days[r], v, cap, minRes);
+        const adj = [];
+        for (let k = prevR + 1; k < r; k++) if (free(days[k])) adj.push(k);
+        const lvl0 = refuelMomentLevel(days[r]);
+        if (lvl0 > b.hi + 0.01 || lvl0 < b.lo - 0.01) {
+          const target = lvl0 > b.hi ? b.tgtHigh : b.tgtLow;
+          let changed = false;
+          for (let pass = 0; pass < 4; pass++) {
+            const lvl = refuelMomentLevel(days[r]);
+            const saved = adj.map(k => JSON.stringify(days[k].legs));
+            let delta = lvl - target;   // > 0 — сжечь больше до заправки
+            // предел обязателен целиком: пробег — целые км, поэтому до предела добираем с округлением вверх
+            if (lvl - b.hi > 0.01) delta = Math.max(delta, Math.ceil((lvl - b.hi) / unit - 1e-9) * unit);
+            else if (b.lo - lvl > 0.01) delta = Math.min(delta, -Math.ceil((b.lo - lvl) / unit - 1e-9) * unit);
+            else if (Math.abs(delta) < unit) break;
+            if (!setWindowKmByFuel(prof, per, adj, delta, unit, workLocs)) break;
+            // дни окна упёрлись в резерв (ниже него обычный день не опускается) — маршруты не трогаем зря
+            if (Math.abs(refuelMomentLevel(days[r]) - lvl) < unit / 2) {
+              adj.forEach((k, j) => { days[k].legs = JSON.parse(saved[j]); });
+              enforceStrictFuelPhysics(prof, per);
+              break;
+            }
+            changed = true;
+          }
+          const d = days[r];
+          const azsIdx = dd => (Array.isArray(dd.legs) ? dd.legs.findIndex(l => l && l.is_azs) : -1);
+          // перелив остался (заправки подряд, нет свободных дней; огромный чек — бак к заправке почти пуст,
+          // а обычные дни ниже резерва не опускаются): сначала пробег ПОСЛЕ прошлой заправки, затем — ДО этой
+          if (refuelMomentLevel(d) - b.hi > 0.01 && prevR >= 0 && free(days[prevR]) && azsIdx(days[prevR]) >= 0) {
+            const pd = days[prevR];
+            const room = Math.max(0, Math.floor((Number(pd.end_tank) - minRes) / unit));
+            const need = Math.ceil((refuelMomentLevel(d) - b.hi) / unit - 1e-9);
+            if (stretchLegsKm(prof, pd, azsIdx(pd) + 1, pd.legs.length - 1, Math.min(need, room))) {
+              enforceStrictFuelPhysics(prof, per); changed = true;
+            }
+          }
+          if (refuelMomentLevel(d) - b.hi > 0.01 && free(d) && azsIdx(d) >= 0 && (prevR >= 0 || stretchFirst)) {
+            const need = Math.ceil((refuelMomentLevel(d) - b.hi) / unit - 1e-9);
+            if (stretchLegsKm(prof, d, 0, azsIdx(d), need)) { enforceStrictFuelPhysics(prof, per); changed = true; }
+          }
+          // к заправке «не доехать»: укоротить плечи до АЗС в самом дне заправки
+          if (refuelMomentLevel(d) < b.lo - 0.01 && free(d)) {
+            const ai = d.legs.findIndex(l => l && l.is_azs);
+            // не дальше верхнего предела: перелив важнее «пустого» запаса
+            let cut = Math.min(Math.ceil((b.lo - refuelMomentLevel(d)) / unit - 1e-9),
+              Math.floor((b.hi - refuelMomentLevel(d)) / unit + 1e-9));
+            for (let i = ai; i >= 0 && cut > 0; i--) {
+              const km = parseInt(d.legs[i].km, 10) || 1;
+              const dec = Math.min(cut, km - 1);
+              if (dec > 0) { d.legs[i].km = km - dec; cut -= dec; changed = true; }
+            }
+            recomputeDayLegTimings(prof, d);
+            enforceStrictFuelPhysics(prof, per);
+          }
+          if (changed) res.fixes++;
+          const lvl = refuelMomentLevel(days[r]);
+          if (prevR < 0 && lvl > b.hi + 0.01) {
+            res.firstNeed = +(lvl - b.hi).toFixed(2);
+            res.firstWant = +(lvl - b.tgtHigh).toFixed(2);
+          }
+        }
+        prevR = r;
+      }
+      return res;
+    }
+
+    // Первое окно месяца не вместило чек — сжечь лишнее в конце прошлого месяца (после его последней заправки)
+    function burnMoreInMonthTail(prof, per, want, protect = null) {
+      if (!per || !Array.isArray(per.days) || !per.days.length || !(want > 0)) return 0;
+      const days = per.days;
+      const cap = Math.max(30, Math.min(200, Number(prof.tankCap) || 70));
+      const minRes = Math.max(2, Math.min(cap * 0.45, Number(prof.minReserve) || 8.0));
+      const unit = Math.max(4, Math.min(45, getSeasonalNormForMonth(prof, per.month))) / 100;
+      const workLocs = state.locations.filter(l => l.active && (l.zone === 'GREEN' || l.zone === 'BLUE'));
+      let lastR = -1;
+      days.forEach((d, i) => { if ((Number(d.refueled) || 0) > 0) lastR = i; });
+      const adj = [];
+      for (let k = lastR + 1; k < days.length; k++) {
+        const d = days[k];
+        if (!d.excluded && !d.is_fuel_trip && !d.routeEdited && !(protect && protect.has(d))) adj.push(k);
+      }
+      const end0 = Number(days[days.length - 1].end_tank);
+      const extra = Math.min(want, end0 - (minRes + 0.5));
+      if (!adj.length || extra < unit) return 0;
+      const goal = end0 - extra;
+      for (let pass = 0; pass < 4; pass++) {
+        const delta = Number(days[days.length - 1].end_tank) - goal;
+        if (Math.abs(delta) < unit || !setWindowKmByFuel(prof, per, adj, delta, unit, workLocs)) break;
+      }
+      return +(end0 - Number(days[days.length - 1].end_tank)).toFixed(2);
+    }
+
     function enforceStrictFuelPhysics(prof, per) {
       if (!per || !Array.isArray(per.days) || !per.days.length) return;
       const tankCap = Math.max(30, Math.min(200, Number(prof.tankCap) || 70));
@@ -3851,14 +4052,16 @@
           d.legs = [];
           const ref = Math.max(0, Number(d.refueled) || 0);
           if (ref > 0) {
+            // v8.2.0: без обрезки по баку — перелив виден проверкой, а не «исчезает»
             d.tank_before_refuel = d.start_tank;
-            d.tank_after_refuel = +Math.min(tankCap, d.start_tank + ref).toFixed(2);
+            d.tank_after_refuel = +(d.start_tank + ref).toFixed(2);
             d.end_tank = d.tank_after_refuel;
           } else {
             d.tank_before_refuel = null;
             d.tank_after_refuel = null;
             d.end_tank = d.start_tank;
           }
+          d.fuel_warn = refuelWarnText(d, tankCap);
           curTank = d.end_tank;
           return;
         }
@@ -3870,10 +4073,6 @@
           refuel = maxRef;
           d.refueled = refuel;
         }
-        // Перед большой заправкой в баке может быть меньше резерва — ровно столько, чтобы чек влез.
-        const resBefore = refuel > 0 ? Math.max(0.3, Math.min(minRes, tankCap - refuel)) : minRes;
-        // Сколько нужно сжечь до заправки, чтобы чек поместился в бак (иначе литры «исчезнут»)
-        const minBurnToFit = Math.max(0, +(d.start_tank + refuel - tankCap).toFixed(2));
 
         let maxPossibleBurnToday = Math.max(0, +(d.start_tank + refuel - minRes).toFixed(2));
         // Последняя страховка: если топлива над резервом не хватает даже на минимальный выезд
@@ -3917,27 +4116,11 @@
         // v8.1.3: пересчёт физики больше НЕ сдвигает пробег на «+2 км, если совпал с прошлым днём» —
         // это молча меняло ручные правки при каждом пересчёте и сдвигало остатки всей цепочки.
 
-        // v8.1.2: если с утренним остатком чек не влезает в бак — день обязан проехать больше
-        // (раньше лишние литры просто обрезались, и баланс «начало + заправка − расход = конец» ломался)
-        let lengthened = false;
-        if (minBurnToFit > 0 && d.legs.length > 0) {
-          const needKm = Math.min(maxPossibleKmToday, Math.ceil((minBurnToFit * 100) / d.eff_norm - 1e-9));
-          if (sumKm < needKm) {
-            let add = needKm - sumKm;
-            const order = d.legs.map((l, i) => i).sort((a, b) => (parseInt(d.legs[b].km, 10) || 0) - (parseInt(d.legs[a].km, 10) || 0));
-            let oi = 0;
-            while (add > 0) {
-              const leg = d.legs[order[oi % order.length]];
-              leg.km = (parseInt(leg.km, 10) || 1) + 1;
-              add--; oi++;
-            }
-            sumKm = needKm;
-            lengthened = true;
-          }
-        }
+        // v8.2.0: день заправки больше НЕ удлиняется «до полного бака» (км добавлялись в любые плечи, даже
+        // после АЗС, а бак выходил ровно полным). Перелив гасят дни перед заправкой — fitRefuelWindows.
 
         // Заправочный выезд имеет ровно 2 плеча «туда-обратно» — это норма, не «шаблон»
-        if (lengthened || (!d.is_fuel_trip && hasTemplatedTimingsInDay(d))) {
+        if (!d.is_fuel_trip && hasTemplatedTimingsInDay(d)) {
           if (!d.is_fuel_trip) recomputeDayLegTimings(prof, d);
         }
         d.km = d.legs.reduce((acc, l) => acc + Math.max(0, parseInt(l.km, 10) || 0), 0);
@@ -3945,10 +4128,9 @@
         d.burned = Math.min(maxPossibleBurnToday, +((d.km * d.eff_norm) / 100).toFixed(2));
 
         if (refuel > 0) {
-          const maxPreBurn = Math.max(0, d.start_tank - resBefore);
-          const preBurn = Math.min(d.burned, maxPreBurn, Math.max(minBurnToFit, Math.min(d.burned * 0.35, 4.5)));
-          d.tank_before_refuel = +(d.start_tank - preBurn).toFixed(2);
-          d.tank_after_refuel = +Math.min(tankCap, d.tank_before_refuel + refuel).toFixed(2);
+          // v8.2.0: «до АЗС» — по маршруту (сожжено на плечах до заправки), «после» — без обрезки по баку
+          d.tank_before_refuel = refuelMomentLevel(d);
+          d.tank_after_refuel = +(d.tank_before_refuel + refuel).toFixed(2);
         } else {
           d.tank_before_refuel = null;
           d.tank_after_refuel = null;
@@ -3956,8 +4138,22 @@
 
         // Остаток на конец — строго по балансу, без обрезки: начало + заправка − расход
         d.end_tank = +(d.start_tank + refuel - d.burned).toFixed(2);
+        d.fuel_warn = refuelWarnText(d, tankCap);
         curTank = d.end_tank;
       });
+    }
+
+    function refuelWarnText(d, cap) {
+      const r = Number(d.refueled) || 0;
+      if (!(r > 0) || d.tank_before_refuel === null || d.tank_before_refuel === undefined) return '';
+      const at = d.azs_time ? ` (${d.azs_time})` : '';
+      if (d.tank_before_refuel + r > cap + 0.011) {
+        return `чек ${r} л не помещается в бак: в момент заправки${at} в баке ${Number(d.tank_before_refuel).toFixed(2)} л, бак ${cap} л — в дни перед заправкой нужно проехать больше`;
+      }
+      if (d.tank_before_refuel < -0.011) {
+        return `к заправке${at} бак пуст: на маршрут до АЗС не хватает ${(-d.tank_before_refuel).toFixed(2)} л`;
+      }
+      return '';
     }
 
     // =========================================================================
@@ -3981,7 +4177,7 @@
       };
     }
 
-    function absorbTankChange(prof, per, fromIdx, anchors, editedIdx = -1) {
+    function absorbTankChange(prof, per, fromIdx, anchors, editedIdx = -1, protect = null) {
       enforceStrictFuelPhysics(prof, per);
       if (!per || !anchors || !Array.isArray(per.days) || anchors.len !== per.days.length) return;
       const days = per.days;
@@ -3999,7 +4195,7 @@
         const after = [], before = [];
         for (let k = Math.max(a, 0); k < b; k++) {
           const d = days[k];
-          if (d.excluded || d.is_fuel_trip || k === editedIdx) continue;
+          if (d.excluded || d.is_fuel_trip || k === editedIdx || d.routeEdited || (protect && protect.has(d))) continue;
           if (editedIdx >= a && editedIdx < b && k < editedIdx) before.push(k); else after.push(k);
         }
         for (let pass = 0; pass < 4; pass++) {
@@ -4038,7 +4234,7 @@
       // остатки ещё прежние (пересчёт не запускался) — это и есть «как было до правки»
       const anchors = snapshotTankAnchors(curPer);
       absorbTankChange(prof, curPer, editedDayIdx, anchors, editedDayIdx);
-      syncCrossMonthCarryOver(prof);
+      syncCrossMonthCarryOver(prof, { protect: new Set([editedDay]) });
     }
 
     // Предыдущий месяц профиля с днями (по календарю), или null — тогда остаток на 1 число задаётся вручную
@@ -4052,10 +4248,11 @@
       return null;
     }
 
-    function syncCrossMonthCarryOver(prof) {
+    function syncCrossMonthCarryOver(prof, opts = {}) {
       if (!prof || !prof.periods) return;
+      const protect = opts.protect || null;
       const sortedKeys = getSortedPeriodKeys(prof);
-      let prevEnd = null;
+      let prevEnd = null, prevPer = null, fixes = 0;
       for (let m = 0; m < sortedKeys.length; m++) {
         const per = prof.periods[sortedKeys[m]];
         if (!per || !per.days || !per.days.length) continue;
@@ -4067,14 +4264,31 @@
             enforceStrictFuelPhysics(prof, per);          // как было — с прежним остатком
             const anchors = snapshotTankAnchors(per);
             per.startTank = carry;
-            absorbTankChange(prof, per, 0, anchors);      // гасим разницу в первых днях месяца
+            absorbTankChange(prof, per, 0, anchors, -1, protect);      // гасим разницу в первых днях месяца
           } else {
             enforceStrictFuelPhysics(prof, per);
           }
         } else {
           enforceStrictFuelPhysics(prof, per);
         }
+        // v8.2.0: каждый чек должен помещаться в бак в момент заправки
+        const fit = fitRefuelWindows(prof, per, protect, !prevPer);
+        fixes += fit.fixes;
+        if (fit.firstNeed > 0.01 && prevPer) {
+          // первое окно месяца коротко — лишнее сжигает конец прошлого месяца, этот месяц начинается ниже
+          const got = burnMoreInMonthTail(prof, prevPer, fit.firstWant, protect);
+          if (got > 0) {
+            fixes++;
+            per.startTank = +Number(prevPer.days[prevPer.days.length - 1].end_tank).toFixed(2);
+          }
+          fixes += fitRefuelWindows(prof, per, protect, true).fixes;   // остаток — пробегом до АЗС в сам день
+        }
         prevEnd = per.days[per.days.length - 1].end_tank;
+        prevPer = per;
+      }
+      if (fixes > 0) {
+        clearTimeout(window._fitToastTimer);
+        window._fitToastTimer = setTimeout(() => showToast(`Чеки не помещались в бак в момент заправки — пробег перед заправками пересчитан (окон: ${fixes})`), 4400);
       }
       refreshStartTankInputs();
     }
@@ -4117,6 +4331,12 @@
           if (Math.abs(s0 - exp) > 0.011) out.push(`${d.date_ru}: остаток при выезде ${s0} л ≠ ${exp} л (конец прошлого листа)`);
           if (Math.abs(s0 + r - bu - e) > 0.011) out.push(`${d.date_ru}: ${s0} + ${r} − ${bu} ≠ ${e} л`);
           if (e < -0.001 || e > cap + 0.001) out.push(`${d.date_ru}: остаток ${e} л вне бака 0…${cap} л`);
+          // v8.2.0: в момент заправки — по маршруту до АЗС
+          if (r > 0) {
+            const lvl = d.excluded ? s0 : refuelMomentLevel(d);
+            if (lvl + r > cap + 0.011) out.push(`${d.date_ru}: чек ${r} л не помещается в бак — в момент заправки${d.azs_time ? ' (' + d.azs_time + ')' : ''} в баке ${lvl.toFixed(2)} л, бак ${cap} л`);
+            else if (lvl < -0.011) out.push(`${d.date_ru}: к заправке${d.azs_time ? ' (' + d.azs_time + ')' : ''} бак пуст — на маршрут до АЗС не хватает ${(-lvl).toFixed(2)} л`);
+          }
           if (!d.excluded) {
             if (Math.abs((Number(d.km) || 0) * (Number(d.eff_norm) || 0) / 100 - bu) > 0.011) out.push(`${d.date_ru}: ${d.km} км × ${d.eff_norm} ≠ расход ${bu} л`);
             const legKm = (d.legs || []).reduce((acc, l) => acc + (parseInt(l.km, 10) || 0), 0);
@@ -4214,6 +4434,7 @@
           const d = days[dIdx];
           const targetKm = Math.max(4, Math.min(140, dayKms[idxPos]));
           d.legs = buildChainForTargetKm(baseAddr, targetKm, workLocs, d.refueled > 0 ? d.azs_addr : null, null, d.refueled > 0 ? d.azs_time : null);
+          delete d.routeEdited;
           prevDayKm = targetKm;
           recentMonthKms.push(targetKm);
         });
@@ -4991,10 +5212,13 @@
 
       document.getElementById('dayStatStartTank').textContent = d.start_tank.toFixed(2) + ' л';
       if (d.refueled > 0 && d.tank_before_refuel !== null) {
-        document.getElementById('dayStatBeforeAfterAzs').textContent =
-          `${d.tank_before_refuel.toFixed(2)} → ${d.tank_after_refuel.toFixed(2)} л`;
+        const ba = document.getElementById('dayStatBeforeAfterAzs');
+        ba.textContent = `${d.tank_before_refuel.toFixed(2)} → ${d.tank_after_refuel.toFixed(2)} л`;
+        ba.style.color = d.fuel_warn ? '#e11d48' : '';
+        ba.title = d.fuel_warn ? ('⚠ ' + d.fuel_warn) : 'В баке перед заправкой (по маршруту до АЗС) → после заправки';
       } else {
-        document.getElementById('dayStatBeforeAfterAzs').textContent = 'Без заправки';
+        const ba = document.getElementById('dayStatBeforeAfterAzs');
+        ba.textContent = 'Без заправки'; ba.style.color = ''; ba.title = '';
       }
       document.getElementById('dayStatKm').textContent = `${d.km} км (город: ${d.city_km} км)`;
       document.getElementById('dayStatBurned').textContent = `${d.burned.toFixed(2)} л (${d.eff_norm}/100)`;
@@ -5061,6 +5285,7 @@
       }
       d.legs[lIdx].km = calcPairKmAndDuration(d.legs[lIdx].from, d.legs[lIdx].to).km;
       recomputeDayLegTimings(prof, d);
+      d.routeEdited = true;   // v8.2.0: ручную правку автоматический пересчёт не трогает
 
       rebalanceMonthAroundEditedDay(prof, curPer, state.selectedDayIndex);
       renderAllGeneratorViews();
@@ -5081,6 +5306,7 @@
       } else {
         d.legs[lIdx][field] = val.trim();
       }
+      d.routeEdited = true;
 
       rebalanceMonthAroundEditedDay(prof, curPer, state.selectedDayIndex);
       renderAllGeneratorViews();
@@ -5124,6 +5350,7 @@
 
       // Пересчитываем тайминги выезда/возврата по всем строкам дня с шагом 15 минут
       recomputeDayLegTimings(prof, d);
+      d.routeEdited = true;
       rebalanceMonthAroundEditedDay(prof, curPer, state.selectedDayIndex);
       renderAllGeneratorViews();
       showToast(`Добавлена точка маршрута (всего маршрутов в дне: ${d.legs.length}), дальнейшие дни месяца пересчитаны`);
@@ -5157,6 +5384,7 @@
           d.legs[0].from = prof.baseAddress;
           d.legs[d.legs.length - 1].to = prof.baseAddress;
           recomputeDayLegTimings(prof, d);
+          d.routeEdited = true;
           rebalanceMonthAroundEditedDay(prof, curPer, state.selectedDayIndex);
           renderAllGeneratorViews();
           showToast(`Строка маршрута удалена (осталось маршрутов: ${d.legs.length}), баланс месяца пересчитан`);
@@ -5182,6 +5410,7 @@
         desiredKm = Math.min(maxKmForCount, Math.max(minKmForCount, desiredKm + (desiredKm < (minKmForCount + maxKmForCount) / 2 ? 9 : -9)));
       }
       d.legs = buildChainForTargetKm(prof.baseAddress, desiredKm, workLocs, d.refueled > 0 ? d.azs_addr : null, count, d.refueled > 0 ? d.azs_time : null);
+      delete d.routeEdited;
 
       rebalanceMonthAroundEditedDay(prof, curPer, state.selectedDayIndex);
       renderAllGeneratorViews();
@@ -6116,6 +6345,7 @@
         days: newDays
       };
       rebalanceSinglePeriodObject(prof, prof.periods[key]);
+      fitRefuelWindows(prof, prof.periods[key]);
       return key;
     }
 
@@ -8388,6 +8618,7 @@
       p.medOrgPre = document.getElementById('setMedOrgPre').value.trim();
 
       Object.values(p.periods || {}).forEach(per => enforceStrictFuelPhysics(p, per));
+      syncCrossMonthCarryOver(p);   // v8.2.0: бак мог стать меньше — чеки должны помещаться
       syncSettingsInputs();
       renderHeaderAndSelectors();
       renderAllGeneratorViews();

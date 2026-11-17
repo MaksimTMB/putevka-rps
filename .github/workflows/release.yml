@@ -44,6 +44,7 @@ jobs:
           assert "_relaunch_clean_if_foreign_bundle()" in pathlib.Path("desktop_app.py").read_text(encoding="utf-8"), "Нет защиты запуска после обновления exe (v8.2.0)"
           assert "function absorbTankChange" in h and "ensureOutputIntegrity" in h, "Нет цепочки остатков и проверки перед печатью (v8.2.0)"
           assert "def parse_fines_text" in pathlib.Path("server.py").read_text(encoding="utf-8") and "renderFines" in h, "Нет раздела «Штрафы» (v8.2.0)"
+          assert "function fitRefuelWindows" in h and "function preRefuelKm" in h, "Нет проверки заправки в момент чека (v8.2.0)"
           assert "CSP_PAGE" in pathlib.Path("server.py").read_text(encoding="utf-8") and "pbkdf2_sha256" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Нет защиты данных (v8.2.0)"
           # v8.2.0: защита от повторения утечки 17.11 — в стартовой базе и шаблоне не должно быть реальных данных
           import json as _j, zipfile as _z
