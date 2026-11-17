@@ -103,6 +103,10 @@ def _cleanup_orphan_bundles():
         pass
 
 
+# v8.2.0: программа на этом компьютере слушает только 127.0.0.1 — принимаем запросы только с этим адресом
+# (чужой сайт в браузере не сможет обратиться к программе через подменённое имя — «DNS rebinding»)
+os.environ.setdefault("PUTEVKA_LOCAL_ONLY", "1")
+
 import uvicorn
 import server
 

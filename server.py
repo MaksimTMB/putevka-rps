@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.1.2"
+APP_VERSION = "v8.2.0"
 
-app = FastAPI(title="ПУТЁВКА v8.1.2 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.2.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -506,12 +506,19 @@ SESSION_COOKIE = "putevka_sid"
 SESSION_TTL = 7 * 24 * 3600
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 _SESS_LOCK = threading.Lock()
-_SESSIONS = {}
+_SESSIONS = {}  # v8.2.0: ключ — SHA-256 от токена (сам токен на диске не хранится)
 _PUBLIC_API = {"/api/version", "/api/update/check", "/api/auth/login", "/api/auth/setup",
                "/api/auth/logout", "/api/auth/me"}
 # что можно водителю (метод, путь или префикс пути, заканчивающийся на «/»)
 _DRIVER_ALLOWED = [("GET", "/api/state"), ("POST", "/api/export/docx"), ("POST", "/api/export/xlsx"),
-                   ("GET", "/api/documents/download/"), ("GET", "/api/documents/text/")]
+                   ("GET", "/api/documents/download/"), ("GET", "/api/documents/text/"), ("GET", "/api/deadlines")]
+# v8.2.0: программа на одном компьютере (exe) слушает только 127.0.0.1 — тогда принимаем запросы
+# только с адресом 127.0.0.1/localhost (защита от «DNS rebinding»: чужой сайт не достучится до программы)
+LOCAL_ONLY = os.environ.get("PUTEVKA_LOCAL_ONLY") == "1"
+
+
+def _tok_key(tok: str) -> str:
+    return hashlib.sha256(("putevka-session:" + str(tok)).encode("utf-8")).hexdigest()
 
 
 def _sessions_load():
@@ -519,7 +526,9 @@ def _sessions_load():
         with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
         now = time.time()
-        _SESSIONS.update({k: v for k, v in data.items() if isinstance(v, dict) and v.get("exp", 0) > now})
+        # сеансы v8.1.2 хранились открытым токеном — такие не берём (один раз войти заново)
+        _SESSIONS.update({k: v for k, v in data.items()
+                          if isinstance(v, dict) and v.get("exp", 0) > now and re.fullmatch(r"[0-9a-f]{64}", k)})
     except Exception:
         pass
 
@@ -552,7 +561,7 @@ def _users_now():
 
 
 def _public_user(u: dict) -> dict:
-    out = {k: v for k, v in (u or {}).items() if k != "password"}
+    out = {k: v for k, v in (u or {}).items() if k not in ("password", "newPassword")}
     out["hasPassword"] = bool((u or {}).get("password"))
     return out
 
@@ -566,7 +575,7 @@ def _session_user(request: Request):
     if not tok:
         return None
     with _SESS_LOCK:
-        s = _SESSIONS.get(tok)
+        s = _SESSIONS.get(_tok_key(tok))
     if not s or s.get("exp", 0) < time.time():
         return None
     u = next((x for x in _users_now() if x.get("id") == s.get("uid")), None)
@@ -575,15 +584,22 @@ def _session_user(request: Request):
     return u
 
 
-def _start_session(response, uid: str):
+def _start_session(response, uid: str, secure: bool = False):
     tok = secrets.token_urlsafe(32)
     now = time.time()
     with _SESS_LOCK:
         for k in [k for k, v in _SESSIONS.items() if v.get("exp", 0) < now]:
             _SESSIONS.pop(k, None)
-        _SESSIONS[tok] = {"uid": uid, "exp": now + SESSION_TTL}
+        _SESSIONS[_tok_key(tok)] = {"uid": uid, "exp": now + SESSION_TTL}
         _sessions_save()
-    response.set_cookie(SESSION_COOKIE, tok, httponly=True, samesite="strict", path="/")
+    response.set_cookie(SESSION_COOKIE, tok, httponly=True, samesite="strict", path="/", secure=secure)
+
+
+def _drop_user_sessions(uid: str):
+    with _SESS_LOCK:
+        for k in [k for k, v in _SESSIONS.items() if v.get("uid") == uid]:
+            _SESSIONS.pop(k, None)
+        _sessions_save()
 
 
 def _driver_may(method: str, path: str) -> bool:
@@ -593,8 +609,81 @@ def _driver_may(method: str, path: str) -> bool:
     return False
 
 
+# --- v8.2.0: пароли с солью (PBKDF2-SHA256) вместо голого SHA-256 -------------------------
+_PBKDF2_ITER = 200_000
+
+
+def _hash_password(password: str) -> str:
+    """Старый формат (SHA-256 без соли) — только для проверки паролей из прошлых версий."""
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def _make_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), _PBKDF2_ITER).hex()
+    return f"pbkdf2_sha256${_PBKDF2_ITER}${salt}${h}"
+
+
+def _check_password(stored: str, password: str):
+    """(подходит ли, нужно ли перевести на новый формат)."""
+    stored = stored or ""
+    if not stored or not password:
+        return False, False
+    if stored.startswith("pbkdf2_sha256$"):
+        try:
+            _, it, salt, h = stored.split("$")
+            calc = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(it)).hex()
+            return secrets.compare_digest(calc, h), False
+        except Exception:
+            return False, False
+    if re.fullmatch(r"[0-9a-f]{64}", stored):
+        return secrets.compare_digest(stored, _hash_password(password)), True
+    # совсем старые базы: пароль открытым текстом (сам хэш паролем НЕ работает — он не открытый текст)
+    return secrets.compare_digest(stored, password), True
+
+
+# --- v8.2.0: ограничение подбора пароля: 10 ошибок за 10 минут с одного адреса → пауза ------
+_LOGIN_FAILS = {}
+_LOGIN_LOCK = threading.Lock()
+
+
+def _login_blocked(ip: str) -> bool:
+    now = time.time()
+    with _LOGIN_LOCK:
+        lst = [t for t in _LOGIN_FAILS.get(ip, []) if now - t < 600]
+        _LOGIN_FAILS[ip] = lst
+        return len(lst) >= 10
+
+
+def _login_failed(ip: str):
+    with _LOGIN_LOCK:
+        _LOGIN_FAILS.setdefault(ip, []).append(time.time())
+
+
+# --- v8.2.0: защитные заголовки -------------------------------------------------------------
+# Страница может обращаться по сети ТОЛЬКО к самой программе (connect-src 'self') — даже если
+# чужой код попадёт в окно (через подменённую библиотеку или загруженный файл), данные он
+# никуда не отправит. Библиотеки грузятся только с перечисленных CDN и сверяются по хэшу (SRI).
+CSP_PAGE = ("default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://cdn.tailwindcss.com https://cdn.jsdelivr.net "
+            "https://cdnjs.cloudflare.com https://cdn.sheetjs.com; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; "
+            "img-src 'self' data: blob:; connect-src 'self' https://cdn.jsdelivr.net; worker-src 'self' blob:; "
+            "frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+CSP_DOC = "sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; frame-ancestors 'self'"
+
+
+def _host_ok(request: Request) -> bool:
+    if not LOCAL_ONLY:
+        return True
+    host = (request.headers.get("host") or "").split(":")[0].strip("[]").lower()
+    return host in ("127.0.0.1", "localhost", "::1", "")
+
+
 @app.middleware("http")
 async def _auth_guard(request: Request, call_next):
+    if not _host_ok(request):
+        return JSONResponse({"status": "error", "detail": "Недопустимый адрес"}, status_code=400)
     path = request.url.path
     if path.startswith("/api/") and path not in _PUBLIC_API:
         u = _session_user(request)
@@ -605,13 +694,20 @@ async def _auth_guard(request: Request, call_next):
             msg = "Недостаточно прав: водителю доступны только просмотр и печать своих путевых листов"
             return JSONResponse({"status": "error", "detail": msg, "message": msg}, status_code=403)
         request.state.user = u
-    return await call_next(request)
+    resp = await call_next(request)
+    h = resp.headers
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "no-referrer")
+    h.setdefault("X-Frame-Options", "SAMEORIGIN")
+    h.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+    if path.startswith("/api/"):
+        h.setdefault("Cache-Control", "no-store")
+    if (h.get("content-type") or "").startswith("text/html") and not path.startswith("/api/documents/"):
+        h.setdefault("Content-Security-Policy", CSP_PAGE)
+    return resp
 
 
-@app.get("/api/state")
-def get_state(request: Request):
-    u = request.state.user
-    st = load_valid_state()
+def _strip_state_for(u: dict, st: dict) -> dict:
     if _is_admin(u):
         st["users"] = [_public_user(x) for x in st.get("users", []) or []]
         return st
@@ -620,21 +716,32 @@ def get_state(request: Request):
     if pid and pid != "ALL":
         st["profiles"] = [p for p in st.get("profiles", []) or [] if p.get("id") == pid]
         st["savedDocuments"] = [d for d in st.get("savedDocuments", []) or [] if d.get("profileId") == pid]
+        st["fines"] = [f for f in st.get("fines", []) or [] if f.get("profileId") == pid]
     return st
 
 
+@app.get("/api/state")
+def get_state(request: Request):
+    return _strip_state_for(request.state.user, load_valid_state())
+
+
 @app.post("/api/state")
-def save_state(payload: dict = Body(...)):
+def save_state(request: Request, payload: dict = Body(...)):
     if not isinstance(payload, dict) or not isinstance(payload.get("profiles"), list):
         raise HTTPException(status_code=400, detail="Некорректные данные: нет списка профилей — база не перезаписана")
     existing = load_valid_state()
-    # пароли: браузер их больше не видит; без нового пароля — оставляем прежний
+    # пароли: браузер их не видит; новый пароль приходит один раз в newPassword и хэшируется здесь
     old_users = {x.get("id"): x for x in existing.get("users", []) or []}
+    changed_pw = []
     for x in payload.get("users") or []:
         if not isinstance(x, dict):
             continue
         x.pop("hasPassword", None)
-        if not x.get("password"):
+        newpw = str(x.pop("newPassword", "") or "").strip()
+        if newpw:
+            x["password"] = _make_password(newpw)
+            changed_pw.append(x.get("id"))
+        elif not x.get("password"):
             old = old_users.get(x.get("id"))
             if old and old.get("password"):
                 x["password"] = old["password"]
@@ -643,6 +750,10 @@ def save_state(payload: dict = Body(...)):
     if existing.get("adminSetupCompleted"):
         payload["adminSetupCompleted"] = True
     save_valid_state(payload)
+    me = getattr(request.state, "user", {}) or {}
+    for uid in changed_pw:
+        if uid != me.get("id"):
+            _drop_user_sessions(uid)  # сменили пароль — старые входы этого пользователя закрываются
     return {
         "status": "ok",
         "saved_at": datetime.datetime.now().isoformat(),
@@ -650,12 +761,8 @@ def save_state(payload: dict = Body(...)):
     }
 
 
-def _hash_password(password: str) -> str:
-    return hashlib.sha256(password.encode("utf-8")).hexdigest()
-
-
 @app.post("/api/auth/setup")
-def setup_admin(payload: dict = Body(...)):
+def setup_admin(request: Request, payload: dict = Body(...)):
     login = str(payload.get("login") or "").strip()
     password = str(payload.get("password") or "").strip()
     full_name = str(payload.get("fullName") or "Главный Администратор").strip()
@@ -670,7 +777,7 @@ def setup_admin(payload: dict = Body(...)):
     for u in users:
         if u.get("role") == "admin":
             u["login"] = login
-            u["password"] = _hash_password(password)
+            u["password"] = _make_password(password)
             u["fullName"] = full_name
             u["shortName"] = full_name
             u["active"] = True
@@ -680,7 +787,7 @@ def setup_admin(payload: dict = Body(...)):
         admin_user = {
             "id": "usr_admin",
             "login": login,
-            "password": _hash_password(password),
+            "password": _make_password(password),
             "role": "admin",
             "fullName": full_name,
             "shortName": full_name,
@@ -695,31 +802,35 @@ def setup_admin(payload: dict = Body(...)):
     st["adminSetupCompleted"] = True
     save_valid_state(st)
     resp = JSONResponse({"status": "ok", "user": _public_user(admin_user)})
-    _start_session(resp, admin_user["id"])
+    _start_session(resp, admin_user["id"], secure=request.url.scheme == "https")
     return resp
 
 
 @app.post("/api/auth/login")
-def login_user(payload: dict = Body(...)):
+def login_user(request: Request, payload: dict = Body(...)):
+    ip = request.client.host if request.client else "?"
+    if _login_blocked(ip):
+        return JSONResponse({"status": "error", "message": "Слишком много неудачных попыток входа. Подождите 10 минут."}, status_code=429)
     login = str(payload.get("login") or "").strip()
     password = str(payload.get("password") or "").strip()
     st = load_valid_state()
     users = st.get("users", []) or []
     for u in users:
-        stored = u.get("password") or ""
-        # открытый текст принимаем только у старых паролей, которые ещё НЕ хэш
-        # (иначе сам хэш работал бы как пароль)
-        legacy_plain = not re.fullmatch(r"[0-9a-f]{64}", stored)
-        if login and stored and u.get("login") == login and (stored == _hash_password(password) or (legacy_plain and stored == password)):
-            if u.get("active") is False:
-                return {"status": "error", "message": "Учетная запись отключена администратором"}
-            if legacy_plain:
-                # пароль из старых версий хранился открытым текстом — заменяем на хэш
-                u["password"] = _hash_password(password)
-                save_valid_state(st)
-            resp = JSONResponse({"status": "ok", "user": _public_user(u)})
-            _start_session(resp, u.get("id"))
-            return resp
+        if not login or u.get("login") != login:
+            continue
+        ok, upgrade = _check_password(u.get("password") or "", password)
+        if not ok:
+            continue
+        if u.get("active") is False:
+            return {"status": "error", "message": "Учетная запись отключена администратором"}
+        if upgrade:
+            # пароль из прошлых версий (SHA-256 без соли или открытый текст) — переводим на новый формат
+            u["password"] = _make_password(password)
+            save_valid_state(st)
+        resp = JSONResponse({"status": "ok", "user": _public_user(u)})
+        _start_session(resp, u.get("id"), secure=request.url.scheme == "https")
+        return resp
+    _login_failed(ip)
     time.sleep(0.4)  # притормаживаем подбор пароля
     return {"status": "error", "message": "Неверный логин или пароль"}
 
@@ -729,7 +840,7 @@ def logout_user(request: Request):
     tok = request.cookies.get(SESSION_COOKIE)
     if tok:
         with _SESS_LOCK:
-            if _SESSIONS.pop(tok, None) is not None:
+            if _SESSIONS.pop(_tok_key(tok), None) is not None:
                 _sessions_save()
     resp = JSONResponse({"status": "ok"})
     resp.delete_cookie(SESSION_COOKIE, path="/")
@@ -754,7 +865,6 @@ def _doc_allowed(request: Request, stored_name: str) -> bool:
         return True
     st = load_valid_state()
     return any(d.get("storedName") == stored_name and d.get("profileId") == pid for d in st.get("savedDocuments", []) or [])
-
 
 
 
@@ -1822,6 +1932,10 @@ def classify_document(filename: str, raw: bytes, extracted_text: str = "", state
         except Exception:
             pass
 
+    # v8.2.0: постановления и выписки штрафов — раздел «Документы автомобиля / Штрафы» + разобранные штрафы
+    fines = parse_fines_text(text) if re.search(r"постановлен|штраф|уин|коап|12\.\d", both) else []
+    fines = [f for f in fines if f.get("uin") or (f.get("amount") and f.get("article"))]
+
     wb_strong = hits(WAYBILL_STRONG, both)
     wb_weak = hits(WAYBILL_WEAK, both)
     rc_words = hits(RECEIPTS_WORDS, both)
@@ -1830,6 +1944,9 @@ def classify_document(filename: str, raw: bytes, extracted_text: str = "", state
     if wb_strong:
         category = "waybills"
         reasons.append("форма путевого листа (ОКУД 0345001)")
+    elif fines:
+        category, kind = "car", "Штрафы"
+        reasons.append(f"найдено штрафов: {len(fines)}")
     elif receipts and (len(receipts) >= 2 or rc_words):
         category = "receipts"
         reasons.append(f"найдено чеков АЗС: {len(receipts)}")
@@ -1862,6 +1979,11 @@ def classify_document(filename: str, raw: bytes, extracted_text: str = "", state
             r["profileId"] = pid
             receipt_profiles[pid] = receipt_profiles.get(pid, 0) + 1
     profile_id, how, scores = doc_match_profile(filename + "\n" + text, profiles)
+    if fines:
+        _fines_with_profiles(fines, profiles)
+        owners = {pid for f in fines for pid in f.get("carProfileIds") or []}
+        if len(owners) == 1:
+            profile_id, how = next(iter(owners)), "госномер/СТС в постановлении"
     named = {k: v for k, v in receipt_profiles.items() if k}
     if len(named) >= 2:
         profile_id, how = "", "чеки нескольких водителей"
@@ -1930,6 +2052,7 @@ def classify_document(filename: str, raw: bytes, extracted_text: str = "", state
         "receiptsCount": len(receipts),
         "receiptProfiles": receipt_profiles,
         "receipts": receipts if category == "receipts" else [],
+        "fines": fines,
         "textChars": len(text.strip()),
     }
 
@@ -1991,16 +2114,23 @@ def documents_upload(payload: dict = Body(...)):
         "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
         "sha1": hashlib.sha1(raw).hexdigest(),
     }
-    receipts = []
+    receipts, fines = [], []
+    if payload.get("category") in DOC_CATEGORY_LABELS and not auto:
+        cat = payload.get("category")
+        meta.update({"category": cat, "categoryLabel": DOC_CATEGORY_LABELS[cat], "kind": str(payload.get("kind") or "")[:80],
+                     "year": 0, "month": 0, "validUntil": str(payload.get("validUntil") or "")[:10], "needsReview": False,
+                     "confidence": "high", "reasons": [str(payload.get("reason") or "загружен в карточку водителя")[:120]]})
+        return {"status": "ok", "document": meta, "receipts": [], "fines": []}
     if auto:
         cls = classify_document(filename, raw, str(payload.get("extractedText") or ""), None,
                                 profile_id, int(payload.get("fallbackYear") or 0), int(payload.get("fallbackMonth") or 0))
         receipts = cls.pop("receipts", [])
+        fines = cls.pop("fines", [])
         meta.update(cls)
         meta["type"] = {"receipts": "receipt", "waybills": "waybill"}.get(cls["category"], "document")
     else:
         meta.update(_doc_meta_from_type(doc_type, period_key))
-    return {"status": "ok", "document": meta, "receipts": receipts}
+    return {"status": "ok", "document": meta, "receipts": receipts, "fines": fines}
 
 
 @app.post("/api/documents/reclassify")
@@ -2015,8 +2145,9 @@ def documents_reclassify(payload: dict = Body(...)):
     cls = classify_document(str(payload.get("fileName") or safe), raw, str(payload.get("extractedText") or ""), None,
                             str(payload.get("fallbackProfileId") or ""), int(payload.get("fallbackYear") or 0), int(payload.get("fallbackMonth") or 0))
     receipts = cls.pop("receipts", [])
+    fines = cls.pop("fines", [])
     cls["sha1"] = hashlib.sha1(raw).hexdigest()
-    return {"status": "ok", "classification": cls, "receipts": receipts}
+    return {"status": "ok", "classification": cls, "receipts": receipts, "fines": fines}
 
 
 @app.post("/api/documents/zip")
@@ -2078,9 +2209,18 @@ def documents_download(stored_name: str, request: Request, inline: int = 0, name
         raise HTTPException(status_code=404, detail="Файл не найден")
     import mimetypes
     media = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+    ext = os.path.splitext(safe)[1].lower()
+    # v8.2.0: загруженный файл не должен исполняться в окне программы. Показываем внутри окна только
+    # PDF, картинки (не SVG) и простой текст; HTML/SVG/XML и прочее — только скачиванием и в «песочнице».
+    inline_ok = bool(inline) and (media == "application/pdf" or (media.startswith("image/") and ext != ".svg") or media == "text/plain")
+    if media == "text/plain":
+        media = "text/plain; charset=utf-8"
     # name — исходное имя файла (кириллица), чтобы скачивался «ОСАГО.pdf», а не doc_2026…pdf
-    return FileResponse(path, filename=os.path.basename(name) or safe, media_type=media,
-                        content_disposition_type="inline" if inline else "attachment")
+    resp = FileResponse(path, filename=os.path.basename(name) or safe, media_type=media,
+                        content_disposition_type="inline" if inline_ok else "attachment")
+    if not (media == "application/pdf" and inline_ok):
+        resp.headers["Content-Security-Policy"] = CSP_DOC
+    return resp
 
 
 @app.post("/api/documents/delete")
@@ -2096,6 +2236,403 @@ def documents_delete(payload: dict = Body(...)):
     return {"status": "ok"}
 
 
+# =====================================================================================
+# v8.2.0 — ШТРАФЫ: разбор постановлений и текста проверки (ГИБДД, Госуслуги, банк)
+# Автоматической бесплатной проверки по госномеру/СТС нет (сайт ГИБДД — с капчей, официального API нет),
+# поэтому штрафы приходят из документов (PDF/фото постановления) и из текста страницы проверки,
+# который пользователь копирует сам. Разбор — здесь, привязка к машине/водителю — в программе.
+# =====================================================================================
+_PLATE_LETTERS = "АВЕКМНОРСТУХABEKMHOPCTYX"
+_PLATE_RE = re.compile(r"(?<![0-9A-Za-zА-Яа-я])([" + _PLATE_LETTERS + r"])\s?(\d{3})\s?([" + _PLATE_LETTERS + r"]{2})\s?(\d{2,3})(?![0-9])", re.I)
+_UIN_RE = re.compile(r"(?<!\d)(\d(?:[\s ]?\d){19}(?:(?:[\s ]?\d){5})?)(?!\d)")
+_DATE_RE = r"(0?[1-9]|[12]\d|3[01])[./](0?[1-9]|1[0-2])[./](20[2-3]\d)"
+
+
+def _fine_date(m):
+    return f"{int(m.group(3)):04d}-{int(m.group(2)):02d}-{int(m.group(1)):02d}"
+
+
+def _money(s):
+    s = re.sub(r"[\s ]", "", s or "").replace(",", ".")
+    try:
+        return round(float(s), 2)
+    except ValueError:
+        return None
+
+
+def parse_fines_text(text: str) -> list:
+    t = (text or "").replace("\r", "")
+    if not t.strip():
+        return []
+    # УИН — 20 или 25 цифр (у ГИБДД начинается с 188…); номера длиннее/короче пропускаем
+    uins = []
+    for m in _UIN_RE.finditer(t):
+        d = re.sub(r"\D", "", m.group(1))
+        if len(d) in (20, 25) and d not in [u for u, _, _ in uins]:
+            ctx = t[max(0, m.start() - 60):m.start()].lower()
+            if d.startswith("188") or "уин" in ctx or "постановлен" in ctx or "идентификатор" in ctx:
+                uins.append((d, m.start(), m.end()))
+    blocks = []
+    if uins:
+        for i, (u, a, b) in enumerate(uins):
+            prev_end = uins[i - 1][2] if i else 0
+            end = uins[i + 1][1] if i + 1 < len(uins) else min(len(t), b + 1500)
+            # данные штрафа — сначала ПОСЛЕ его УИН (до следующего), иначе в коротком куске ПЕРЕД ним
+            blocks.append((u, t[b:end], t[max(prev_end, a - 350):a]))
+    elif re.search(r"постановлен|штраф", t, re.I) and re.search(r"12\.\d", t):
+        blocks.append(("", t, ""))
+    out = []
+    for uin, after, before in blocks:
+        f = {"uin": uin}
+        # запись вида «номер → данные» (ГИБДД, постановление): кусок перед номером — чужой штраф
+        if re.search(r"\d\s*(?:руб|₽)", after, re.I):
+            before = ""
+
+        def find(pattern, flags=re.I):
+            return re.search(pattern, after, flags) or (re.search(pattern, before, flags) if before else None)
+
+        m = find(r"(?:дат[аы]\s+(?:и\s+время\s+)?(?:совершения\s+)?(?:правонарушения|нарушения)|нарушени[ея]\s+от|время\s+нарушения)\D{0,25}" + _DATE_RE + r"(?:\D{0,12}?([01]?\d|2[0-3])[:.]([0-5]\d))?")
+        if not m:
+            m = find(_DATE_RE + r"\s*(?:г\.?)?\s*(?:в\s*)?([01]?\d|2[0-3])[:.]([0-5]\d)", 0)
+        if m:
+            f["date"] = _fine_date(m)
+            if m.lastindex and m.lastindex >= 5 and m.group(4):
+                f["time"] = f"{int(m.group(4)):02d}:{m.group(5)}"
+        m = re.search(r"^\D{0,6}от\s+" + _DATE_RE, after, re.I) or find(r"(?:постановлени[ея][^\n]{0,40}?от|дата\s+постановления|вынесено)\D{0,15}" + _DATE_RE)
+        if m:
+            f["decisionDate"] = _fine_date(m)
+        m = find(r"(?:сумма\s+(?:штрафа|к\s+оплате|начисления)?|размер\s+штрафа|штраф\w*\s+в\s+размере|к\s+оплате|начислено)\D{0,20}?(\d[\d\s ]{0,9}(?:[.,]\d{1,2})?)\s*(?:руб|₽|р\.)")
+        if not m:
+            m = find(r"(\d[\d\s ]{1,9}(?:[.,]\d{2})?)\s*(?:руб|₽)")
+        if m:
+            f["amount"] = _money(m.group(1))
+        m = find(r"(?:скидк\w*|со\s+скидкой|льготн\w*)[^\n]{0,80}?до\s+" + _DATE_RE)
+        if m:
+            f["discountUntil"] = _fine_date(m)
+        m = find(r"(?:со\s+скидкой|с\s+учетом\s+скидки|сумма\s+со\s+скидкой)\D{0,20}(\d[\d\s ]{0,9}(?:[.,]\d{1,2})?)\s*(?:руб|₽)")
+        if not m:
+            m = find(r"скидк[^\n]{0,80}?до\s+" + _DATE_RE + r"\D{0,12}?(\d[\d\s ]{0,9}(?:[.,]\d{1,2})?)\s*(?:руб|₽)")
+            if m:
+                f["discountAmount"] = _money(m.group(4))
+                m = None
+        if m:
+            f["discountAmount"] = _money(m.group(1))
+        src = after if re.search(r"12\.\d", after) else before
+        m = re.search(r"(?:ст(?:атья|\.)?\s*)?(12\.\d{1,2}(?:\.\d)?)\s*(?:,?\s*ч(?:асть|\.)?\s*(\d+(?:\.\d)?))?(?:\s*коап(?:\s*рф)?)?", src, re.I)
+        if m:
+            f["article"] = m.group(1) + (f" ч.{m.group(2)}" if m.group(2) else "")
+            tail = src[m.end():m.end() + 200].split("\n")[0].strip(" -–—:.,")
+            if len(tail) >= 6 and not re.match(r"^\d", tail):
+                f["description"] = tail[:160]
+        m = find(r"место\s+(?:совершения\s+)?(?:правонарушения|нарушения)\s*[:\-]?\s*([^\n]{6,200})")
+        if m:
+            f["place"] = m.group(1).strip()[:200]
+        m = _PLATE_RE.search(after) or (_PLATE_RE.search(before) if before else None)
+        if m:
+            f["plate"] = (m.group(1) + m.group(2) + m.group(3) + m.group(4)).upper()
+        m = find(r"(?:стс|свидетельств\w*\s+о\s+регистрации(?:\s+тс)?)\D{0,20}(\d{2}\s?[0-9А-ЯA-Z]{2}\s?\d{6})")
+        if m:
+            f["sts"] = re.sub(r"\s", "", m.group(1)).upper()
+        m = re.search(r"(ЦАФАП[^\n]{0,120}|ОБ\s+ДПС[^\n]{0,120}|ГИБДД[^\n]{0,80})", after) or (re.search(r"(ЦАФАП[^\n]{0,120}|ГИБДД[^\n]{0,80})", before) if before else None)
+        if m:
+            f["issuer"] = m.group(1).strip()[:160]
+        near = after[:700].lower()
+        f["status"] = "paid" if re.search(r"(?<!не\s)оплачен|погашен|исполнен", near) and not re.search(r"не\s+оплачен|к\s+оплате", near) else "unpaid"
+        if f.get("amount") or f.get("uin"):
+            out.append(f)
+    return out
+
+
+def _fines_with_profiles(fines: list, profiles: list) -> list:
+    """Подсказка, чья машина: по госномеру или СТС из постановления."""
+    for f in fines:
+        pids = []
+        for p in profiles or []:
+            plate = _plate_norm(p.get("carPlate"))
+            sts = re.sub(r"\s", "", str(p.get("carSts") or "")).upper()
+            if (f.get("plate") and plate and _plate_norm(f["plate"]) == plate) or (f.get("sts") and sts and f["sts"] == sts):
+                pids.append(p.get("id"))
+        f["carProfileIds"] = pids
+    return fines
+
+
+@app.post("/api/fines/parse")
+def fines_parse(payload: dict = Body(...)):
+    text = str(payload.get("text") or "")[:300000]
+    st = load_valid_state()
+    return {"status": "ok", "fines": _fines_with_profiles(parse_fines_text(text), st.get("profiles", []))}
+
+
+# =====================================================================================
+# v8.2.0 — СРОКИ И НАПОМИНАНИЯ: ОСАГО, ВУ, техосмотр, медсправка, документы со сроком, штрафы
+# В программе — список «Сроки» (/api/deadlines). По желанию — сообщения в Telegram через бота
+# владельца: токен хранится только на сервере (data/notify.json), в окно не отдаётся.
+# В сообщения идут только ФИО кратко, госномер, вид документа и дата — без СНИЛС/номеров ВУ.
+# =====================================================================================
+NOTIFY_FILE = os.path.join(DATA_DIR, "notify.json")
+_NOTIFY_LOCK = threading.Lock()
+NOTIFY_DEFAULT_DAYS = [30, 14, 7, 3, 1, 0]
+PROFILE_DEADLINE_FIELDS = [
+    ("licenseValidUntil", "Водительское удостоверение", "Водительское удостоверение"),
+    ("osagoUntil", "Полис ОСАГО", "Страховка (ОСАГО, КАСКО)"),
+    ("tehosmotrUntil", "Техосмотр (диагностическая карта)", "Техосмотр (диагностическая карта)"),
+    ("medUntil", "Медицинская справка", "Медицинские документы"),
+]
+
+
+def _notify_load() -> dict:
+    try:
+        with open(NOTIFY_FILE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _notify_save(d: dict):
+    tmp = NOTIFY_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+    try:
+        os.chmod(tmp, 0o600)
+    except Exception:
+        pass
+    os.replace(tmp, NOTIFY_FILE)
+
+
+def _iso_date(s):
+    try:
+        return datetime.date.fromisoformat(str(s or "")[:10])
+    except Exception:
+        return None
+
+
+def collect_deadlines(st: dict, today=None, profile_filter: str = "") -> list:
+    today = today or datetime.date.today()
+    items = []
+    profiles = st.get("profiles") or []
+    byid = {p.get("id"): p for p in profiles}
+
+    def who(p):
+        return (p or {}).get("driverShort") or (p or {}).get("driverFull") or "без имени"
+
+    def add(key, label, p, until, source, extra=None):
+        it = {"key": key, "label": label, "profileId": (p or {}).get("id", ""), "driver": who(p) if p else "",
+              "car": (p or {}).get("carPlate", ""), "until": until.isoformat(), "daysLeft": (until - today).days, "source": source}
+        if extra:
+            it.update(extra)
+        items.append(it)
+
+    for p in profiles:
+        if profile_filter and p.get("id") != profile_filter:
+            continue
+        for field, label, _ in PROFILE_DEADLINE_FIELDS:
+            d = _iso_date(p.get(field))
+            if d:
+                add(f"{p.get('id')}:{field}:{d}", label, p, d, "карточка")
+    for doc in st.get("savedDocuments") or []:
+        d = _iso_date(doc.get("validUntil"))
+        if not d:
+            continue
+        p = byid.get(doc.get("profileId"))
+        if profile_filter and doc.get("profileId") != profile_filter:
+            continue
+        # срок из карточки главнее: документ того же вида не дублируем
+        if p and any(kind == doc.get("kind") and _iso_date(p.get(field)) for field, _, kind in PROFILE_DEADLINE_FIELDS):
+            continue
+        add(f"doc:{doc.get('id')}:{d}", doc.get("kind") or doc.get("fileName") or "Документ", p, d, "документ",
+            {"docId": doc.get("id")})
+    for f in st.get("fines") or []:
+        if f.get("status") in ("paid", "cancelled"):
+            continue
+        p = byid.get(f.get("profileId"))
+        if profile_filter and f.get("profileId") != profile_filter:
+            continue
+        amount = f.get("amount")
+        what = f"штраф {('%g' % amount) if amount else ''} ₽".replace("  ", " ") + (f", ст. {f['article']}" if f.get("article") else "")
+        d = _iso_date(f.get("discountUntil"))
+        if d and d >= today:
+            add(f"fine:{f.get('id')}:disc:{d}", f"Скидка на {what}", p, d, "штраф", {"fineId": f.get("id"), "car": f.get("plate") or (p or {}).get("carPlate", "")})
+        dd = _iso_date(f.get("payUntil"))
+        if not dd:
+            dec = _iso_date(f.get("decisionDate"))
+            dd = dec + datetime.timedelta(days=70) if dec else None  # ≈ 10 дней на вступление в силу + 60 на оплату
+        if dd:
+            add(f"fine:{f.get('id')}:pay:{dd}", f"Оплатить {what}", p, dd, "штраф", {"fineId": f.get("id"), "car": f.get("plate") or (p or {}).get("carPlate", "")})
+    items.sort(key=lambda x: x["daysLeft"])
+    return items
+
+
+@app.get("/api/deadlines")
+def api_deadlines(request: Request):
+    u = request.state.user
+    pid = "" if _is_admin(u) or (u.get("assignedProfileId") in (None, "", "ALL")) else u.get("assignedProfileId")
+    return {"status": "ok", "today": datetime.date.today().isoformat(), "items": collect_deadlines(load_valid_state(), profile_filter=pid)}
+
+
+def _tg_send(token: str, chat: str, text: str):
+    try:
+        data = json.dumps({"chat_id": chat, "text": text[:4000], "disable_web_page_preview": True}).encode("utf-8")
+        req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            ok = json.load(r).get("ok") is True
+        return ok, "" if ok else "Telegram ответил ошибкой"
+    except urllib.error.HTTPError as e:
+        try:
+            desc = json.load(e).get("description", "")
+        except Exception:
+            desc = ""
+        return False, f"Telegram: {e.code} {desc}".strip()
+    except Exception as e:
+        return False, f"нет связи с Telegram ({type(e).__name__})"
+
+
+def _fmt_ru(iso):
+    d = _iso_date(iso)
+    return d.strftime("%d.%m.%Y") if d else str(iso or "")
+
+
+def _deadline_line(it):
+    dl = it["daysLeft"]
+    when = "сегодня" if dl == 0 else (f"через {dl} дн." if dl > 0 else f"ПРОСРОЧЕНО на {-dl} дн.")
+    who = ", ".join(x for x in (it.get("driver"), it.get("car")) if x)
+    return f"• {it['label']}{' — ' + who if who else ''}: до {_fmt_ru(it['until'])} ({when})"
+
+
+def _notify_check() -> dict:
+    with _NOTIFY_LOCK:
+        cfg = _notify_load()
+        tg = cfg.get("telegram") or {}
+        if not tg.get("enabled") or not tg.get("token") or not tg.get("chats"):
+            return {"sent": 0, "reason": "уведомления выключены или не настроены"}
+        st = load_valid_state()
+        today = datetime.date.today()
+        days = sorted({int(x) for x in (cfg.get("days") or NOTIFY_DEFAULT_DAYS) if str(x).lstrip("-").isdigit()}, reverse=True)
+        sent = cfg.setdefault("sent", {})
+        lines, marks = [], []
+        for it in collect_deadlines(st, today):
+            dl = it["daysLeft"]
+            if dl < 0:
+                mark = "expired"
+            else:
+                ths = [d for d in days if dl <= d]
+                if not ths:
+                    continue
+                mark = str(min(ths))
+            k = it["key"] + "|" + mark
+            if k not in sent:
+                lines.append(_deadline_line(it))
+                marks.append(k)
+        byid = {p.get("id"): p for p in st.get("profiles") or []}
+        new_fines = []
+        for f in st.get("fines") or []:
+            k = f"fine-new:{f.get('id')}"
+            if f.get("status") in ("paid", "cancelled") or not f.get("id") or k in sent:
+                continue
+            p = byid.get(f.get("profileId"))
+            parts = [f.get("plate") or (p or {}).get("carPlate", ""), f"{('%g' % f['amount']) if f.get('amount') else '?'} ₽",
+                     " ".join(x for x in (_fmt_ru(f.get("date")) if f.get("date") else "", f.get("time", "")) if x),
+                     f"ст. {f['article']}" if f.get("article") else "",
+                     f"водитель: {(p or {}).get('driverShort') or (p or {}).get('driverFull')}" if p else "водитель не определён",
+                     f"скидка до {_fmt_ru(f['discountUntil'])}" if f.get("discountUntil") else ""]
+            new_fines.append("• " + "; ".join(x for x in parts if x))
+            marks.append(k)
+        if not lines and not new_fines:
+            cfg["lastRun"] = datetime.datetime.now().isoformat(timespec="seconds")
+            _notify_save(cfg)
+            return {"sent": 0}
+        text = ""
+        if new_fines:
+            text += "🚨 Новые штрафы (ПУТЁВКА):\n" + "\n".join(new_fines) + "\n\n"
+        if lines:
+            text += "⏰ Сроки документов (ПУТЁВКА):\n" + "\n".join(lines)
+        ok_all, errs = True, []
+        for chat in tg.get("chats") or []:
+            ok, err = _tg_send(tg["token"], str(chat), text.strip())
+            if not ok:
+                ok_all = False
+                errs.append(err)
+        cfg["lastRun"] = datetime.datetime.now().isoformat(timespec="seconds")
+        cfg["lastError"] = "; ".join(sorted(set(errs)))
+        if ok_all:
+            for k in marks:
+                sent[k] = today.isoformat()
+        # старые отметки чистим
+        cutoff = (today - datetime.timedelta(days=400)).isoformat()
+        cfg["sent"] = {k: v for k, v in sent.items() if v >= cutoff}
+        _notify_save(cfg)
+        return {"sent": len(marks) if ok_all else 0, "error": cfg["lastError"]}
+
+
+def _notify_loop():
+    time.sleep(30)
+    while True:
+        try:
+            _notify_check()
+        except Exception:
+            pass
+        time.sleep(1800)
+
+
+@app.on_event("startup")
+def _start_notify_thread():
+    threading.Thread(target=_notify_loop, daemon=True).start()
+
+
+@app.get("/api/notify/settings")
+def notify_settings_get():
+    cfg = _notify_load()
+    tg = cfg.get("telegram") or {}
+    tok = tg.get("token") or ""
+    return {"status": "ok", "enabled": bool(tg.get("enabled")), "hasToken": bool(tok),
+            "tokenHint": ("…" + tok[-4:]) if tok else "", "chats": tg.get("chats") or [],
+            "days": cfg.get("days") or NOTIFY_DEFAULT_DAYS, "lastRun": cfg.get("lastRun", ""), "lastError": cfg.get("lastError", "")}
+
+
+@app.post("/api/notify/settings")
+def notify_settings_set(payload: dict = Body(...)):
+    with _NOTIFY_LOCK:
+        cfg = _notify_load()
+        tg = cfg.setdefault("telegram", {})
+        tok = str(payload.get("token") or "").strip()
+        if payload.get("clearToken"):
+            tg["token"] = ""
+        elif tok:
+            if not re.fullmatch(r"\d{5,}:[A-Za-z0-9_-]{30,}", tok):
+                raise HTTPException(status_code=400, detail="Это не похоже на токен бота (вида 123456789:AA…). Его выдаёт @BotFather.")
+            tg["token"] = tok
+        if "chats" in payload:
+            chats = [str(c).strip() for c in (payload.get("chats") or []) if str(c).strip()]
+            for c in chats:
+                if not re.fullmatch(r"-?\d{3,20}|@[A-Za-z0-9_]{4,64}", c):
+                    raise HTTPException(status_code=400, detail=f"Неверный адрес чата: {c} (нужен числовой id или @канал)")
+            tg["chats"] = chats[:10]
+        if "enabled" in payload:
+            tg["enabled"] = bool(payload.get("enabled"))
+        if "days" in payload:
+            d = sorted({int(x) for x in payload.get("days") or [] if str(x).isdigit() and 0 <= int(x) <= 365}, reverse=True)
+            cfg["days"] = d or NOTIFY_DEFAULT_DAYS
+        _notify_save(cfg)
+    return notify_settings_get()
+
+
+@app.post("/api/notify/test")
+def notify_test():
+    cfg = _notify_load()
+    tg = cfg.get("telegram") or {}
+    if not tg.get("token") or not tg.get("chats"):
+        return {"status": "error", "message": "Сначала укажите токен бота и хотя бы один чат"}
+    res = [{"chat": c, "ok": ok, "error": err} for c in tg["chats"]
+           for ok, err in [_tg_send(tg["token"], str(c), "✅ ПУТЁВКА: проверка уведомлений. Сюда будут приходить напоминания о сроках ОСАГО, ВУ, документов и о новых штрафах.")]]
+    return {"status": "ok" if all(r["ok"] for r in res) else "error", "results": res}
+
+
+@app.post("/api/notify/run")
+def notify_run():
+    return {"status": "ok", **_notify_check()}
+
+
 # v8.1.2: запуск — СТРОГО в самом конце файла. Раньше этот блок стоял посередине, и при
 # запуске «python server.py» (серверная версия: systemd, Docker) всё, что ниже него,
 # не успевало подключиться: проверка обновлений и весь раздел «Документы» отвечали 404.
@@ -2107,4 +2644,11 @@ if __name__ == "__main__":
         _port = int(os.environ.get("PUTEVKA_PORT") or os.environ.get("PORT") or 8080)
     except ValueError:
         _port = 8080
-    uvicorn.run(app, host=_host, port=_port)
+    if _host in ("127.0.0.1", "localhost", "::1"):
+        LOCAL_ONLY = True
+    # v8.2.0: HTTPS — если заданы сертификат и ключ (для серверной версии, доступной из сети)
+    _cert, _key = os.environ.get("PUTEVKA_SSL_CERTFILE"), os.environ.get("PUTEVKA_SSL_KEYFILE")
+    if _cert and _key:
+        uvicorn.run(app, host=_host, port=_port, ssl_certfile=_cert, ssl_keyfile=_key)
+    else:
+        uvicorn.run(app, host=_host, port=_port)
