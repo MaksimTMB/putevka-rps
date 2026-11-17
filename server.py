@@ -487,13 +487,161 @@ def get_version():
     }
 
 
+# =====================================================================================
+# v8.1.2 — ВХОД НА СЕРВЕРЕ
+# Раньше сервер отдавал всю базу (вместе с хэшами паролей) любому, кто откроет /api/state,
+# принимал её перезапись без входа, а пароль сверялся в браузере. Теперь:
+#   • без входа доступны только страница, /api/version, /api/update/check и /api/auth/*;
+#   • вход — на сервере, сеанс в cookie (HttpOnly, SameSite=Strict), сеансы переживают
+#     перезапуск программы (data/sessions.json);
+#   • хэши паролей никогда не уходят в браузер (вместо них hasPassword);
+#   • водитель («просмотр и печать») получает только свой профиль и ничего не записывает;
+#   • повторная «первичная настройка» администратора невозможна, если он уже настроен.
+# =====================================================================================
+import secrets
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+SESSION_COOKIE = "putevka_sid"
+SESSION_TTL = 7 * 24 * 3600
+SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
+_SESS_LOCK = threading.Lock()
+_SESSIONS = {}
+_PUBLIC_API = {"/api/version", "/api/update/check", "/api/auth/login", "/api/auth/setup",
+               "/api/auth/logout", "/api/auth/me"}
+# что можно водителю (метод, путь или префикс пути, заканчивающийся на «/»)
+_DRIVER_ALLOWED = [("GET", "/api/state"), ("POST", "/api/export/docx"), ("POST", "/api/export/xlsx"),
+                   ("GET", "/api/documents/download/"), ("GET", "/api/documents/text/")]
+
+
+def _sessions_load():
+    try:
+        with open(SESSIONS_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        now = time.time()
+        _SESSIONS.update({k: v for k, v in data.items() if isinstance(v, dict) and v.get("exp", 0) > now})
+    except Exception:
+        pass
+
+
+def _sessions_save():
+    try:
+        tmp = SESSIONS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_SESSIONS, f)
+        os.replace(tmp, SESSIONS_FILE)
+    except Exception:
+        pass
+
+
+_sessions_load()
+
+_USERS_CACHE = {"mtime": -1.0, "users": [], "setup": False}
+
+
+def _users_now():
+    try:
+        mt = os.path.getmtime(DB_FILE)
+    except Exception:
+        mt = 0.0
+    if mt != _USERS_CACHE["mtime"]:
+        st = load_valid_state()
+        _USERS_CACHE.update({"mtime": mt, "users": st.get("users", []) or [],
+                             "setup": bool(st.get("adminSetupCompleted"))})
+    return _USERS_CACHE["users"]
+
+
+def _public_user(u: dict) -> dict:
+    out = {k: v for k, v in (u or {}).items() if k != "password"}
+    out["hasPassword"] = bool((u or {}).get("password"))
+    return out
+
+
+def _is_admin(u) -> bool:
+    return bool(u) and u.get("role") == "admin"
+
+
+def _session_user(request: Request):
+    tok = request.cookies.get(SESSION_COOKIE)
+    if not tok:
+        return None
+    with _SESS_LOCK:
+        s = _SESSIONS.get(tok)
+    if not s or s.get("exp", 0) < time.time():
+        return None
+    u = next((x for x in _users_now() if x.get("id") == s.get("uid")), None)
+    if not u or u.get("active") is False:
+        return None
+    return u
+
+
+def _start_session(response, uid: str):
+    tok = secrets.token_urlsafe(32)
+    now = time.time()
+    with _SESS_LOCK:
+        for k in [k for k, v in _SESSIONS.items() if v.get("exp", 0) < now]:
+            _SESSIONS.pop(k, None)
+        _SESSIONS[tok] = {"uid": uid, "exp": now + SESSION_TTL}
+        _sessions_save()
+    response.set_cookie(SESSION_COOKIE, tok, httponly=True, samesite="strict", path="/")
+
+
+def _driver_may(method: str, path: str) -> bool:
+    for m, p in _DRIVER_ALLOWED:
+        if m == method and (path == p or (p.endswith("/") and path.startswith(p))):
+            return True
+    return False
+
+
+@app.middleware("http")
+async def _auth_guard(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path not in _PUBLIC_API:
+        u = _session_user(request)
+        if not u:
+            return JSONResponse({"status": "error", "detail": "Требуется вход в программу",
+                                 "message": "Требуется вход в программу"}, status_code=401)
+        if not _is_admin(u) and not _driver_may(request.method, path):
+            msg = "Недостаточно прав: водителю доступны только просмотр и печать своих путевых листов"
+            return JSONResponse({"status": "error", "detail": msg, "message": msg}, status_code=403)
+        request.state.user = u
+    return await call_next(request)
+
+
 @app.get("/api/state")
-def get_state():
-    return load_valid_state()
+def get_state(request: Request):
+    u = request.state.user
+    st = load_valid_state()
+    if _is_admin(u):
+        st["users"] = [_public_user(x) for x in st.get("users", []) or []]
+        return st
+    st["users"] = [_public_user(u)]
+    pid = u.get("assignedProfileId")
+    if pid and pid != "ALL":
+        st["profiles"] = [p for p in st.get("profiles", []) or [] if p.get("id") == pid]
+        st["savedDocuments"] = [d for d in st.get("savedDocuments", []) or [] if d.get("profileId") == pid]
+    return st
 
 
 @app.post("/api/state")
 def save_state(payload: dict = Body(...)):
+    if not isinstance(payload, dict) or not isinstance(payload.get("profiles"), list):
+        raise HTTPException(status_code=400, detail="Некорректные данные: нет списка профилей — база не перезаписана")
+    existing = load_valid_state()
+    # пароли: браузер их больше не видит; без нового пароля — оставляем прежний
+    old_users = {x.get("id"): x for x in existing.get("users", []) or []}
+    for x in payload.get("users") or []:
+        if not isinstance(x, dict):
+            continue
+        x.pop("hasPassword", None)
+        if not x.get("password"):
+            old = old_users.get(x.get("id"))
+            if old and old.get("password"):
+                x["password"] = old["password"]
+            else:
+                x.pop("password", None)
+    if existing.get("adminSetupCompleted"):
+        payload["adminSetupCompleted"] = True
     save_valid_state(payload)
     return {
         "status": "ok",
@@ -515,7 +663,9 @@ def setup_admin(payload: dict = Body(...)):
         raise HTTPException(status_code=400, detail="Логин и пароль обязательны")
 
     st = load_valid_state()
-    users = st.get("users", [])
+    users = st.get("users", []) or []
+    if st.get("adminSetupCompleted") and any(u.get("role") == "admin" and u.get("password") for u in users):
+        raise HTTPException(status_code=403, detail="Администратор уже настроен — войдите под своим логином")
     admin_user = None
     for u in users:
         if u.get("role") == "admin":
@@ -544,7 +694,9 @@ def setup_admin(payload: dict = Body(...)):
     st["users"] = users
     st["adminSetupCompleted"] = True
     save_valid_state(st)
-    return {"status": "ok", "user": admin_user}
+    resp = JSONResponse({"status": "ok", "user": _public_user(admin_user)})
+    _start_session(resp, admin_user["id"])
+    return resp
 
 
 @app.post("/api/auth/login")
@@ -552,14 +704,56 @@ def login_user(payload: dict = Body(...)):
     login = str(payload.get("login") or "").strip()
     password = str(payload.get("password") or "").strip()
     st = load_valid_state()
-    users = st.get("users", [])
+    users = st.get("users", []) or []
     for u in users:
         stored = u.get("password") or ""
-        if u.get("login") == login and (stored == password or stored == _hash_password(password)):
+        # открытый текст принимаем только у старых паролей, которые ещё НЕ хэш
+        # (иначе сам хэш работал бы как пароль)
+        legacy_plain = not re.fullmatch(r"[0-9a-f]{64}", stored)
+        if login and stored and u.get("login") == login and (stored == _hash_password(password) or (legacy_plain and stored == password)):
             if u.get("active") is False:
                 return {"status": "error", "message": "Учетная запись отключена администратором"}
-            return {"status": "ok", "user": u}
+            if legacy_plain:
+                # пароль из старых версий хранился открытым текстом — заменяем на хэш
+                u["password"] = _hash_password(password)
+                save_valid_state(st)
+            resp = JSONResponse({"status": "ok", "user": _public_user(u)})
+            _start_session(resp, u.get("id"))
+            return resp
+    time.sleep(0.4)  # притормаживаем подбор пароля
     return {"status": "error", "message": "Неверный логин или пароль"}
+
+
+@app.post("/api/auth/logout")
+def logout_user(request: Request):
+    tok = request.cookies.get(SESSION_COOKIE)
+    if tok:
+        with _SESS_LOCK:
+            if _SESSIONS.pop(tok, None) is not None:
+                _sessions_save()
+    resp = JSONResponse({"status": "ok"})
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    u = _session_user(request)
+    if not u:
+        return JSONResponse({"status": "error", "message": "Требуется вход"}, status_code=401)
+    return {"status": "ok", "user": _public_user(u)}
+
+
+def _doc_allowed(request: Request, stored_name: str) -> bool:
+    """Водитель видит только документы своего профиля."""
+    u = getattr(request.state, "user", None)
+    if _is_admin(u):
+        return True
+    pid = (u or {}).get("assignedProfileId")
+    if not pid or pid == "ALL":
+        return True
+    st = load_valid_state()
+    return any(d.get("storedName") == stored_name and d.get("profileId") == pid for d in st.get("savedDocuments", []) or [])
 
 
 
@@ -1181,6 +1375,14 @@ def _download_new_exe(timeout=180):
     return None
 
 
+def _clean_child_env():
+    """Окружение для запуска НОВОГО экземпляра программы: без переменных распаковщика PyInstaller."""
+    env = {k: v for k, v in os.environ.items()
+           if not (k.startswith("_PYI_") or k.startswith("_MEIPASS") or k == "PUTEVKA_RELAUNCHED")}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    return env
+
+
 def _replace_windows_exe(new_path=None):
     try:
         exe_path = sys.executable
@@ -1209,7 +1411,10 @@ def _replace_windows_exe(new_path=None):
             # запускаем программу в любом случае: если замена не удалась — запустится прежняя версия
             f.write(f'start "" "{exe_path}"\r\n')
             f.write('del "%~f0" >nul 2>&1\r\n')
-        subprocess.Popen(["cmd", "/c", bat], creationflags=0x00000008, close_fds=True)
+        # v8.1.2: батник (и запускаемый им новый exe) — с ЧИСТЫМ окружением. Иначе новый exe
+        # наследует служебные переменные PyInstaller старого процесса, считает себя «дочерним» и
+        # работает из распакованной папки СТАРОЙ версии: сервер новый, страница старая («не обновилась»).
+        subprocess.Popen(["cmd", "/c", bat], creationflags=0x00000008, close_fds=True, env=_clean_child_env())
         return True
     except Exception:
         return False
@@ -1850,11 +2055,13 @@ def documents_zip(payload: dict = Body(...)):
 
 
 @app.get("/api/documents/text/{stored_name}")
-def documents_text(stored_name: str):
+def documents_text(stored_name: str, request: Request):
     """Текст документа для предпросмотра (Word, таблицы, текстовые файлы)."""
     safe = os.path.basename(stored_name)
+    if not _doc_allowed(request, safe):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому документу")
     path = os.path.join(DOCS_DIR, safe)
-    if not os.path.exists(path):
+    if not safe or not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Файл не найден")
     with open(path, "rb") as f:
         raw = f.read()
@@ -1862,10 +2069,12 @@ def documents_text(stored_name: str):
 
 
 @app.get("/api/documents/download/{stored_name}")
-def documents_download(stored_name: str, inline: int = 0, name: str = ""):
+def documents_download(stored_name: str, request: Request, inline: int = 0, name: str = ""):
     safe = os.path.basename(stored_name)
+    if not safe or not _doc_allowed(request, safe):
+        raise HTTPException(status_code=403, detail="Нет доступа к этому документу")
     path = os.path.join(DOCS_DIR, safe)
-    if not os.path.exists(path):
+    if not os.path.isfile(path):
         raise HTTPException(status_code=404, detail="Файл не найден")
     import mimetypes
     media = mimetypes.guess_type(safe)[0] or "application/octet-stream"

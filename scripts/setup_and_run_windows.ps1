@@ -81,8 +81,8 @@ $HealthOk = $false
 for ($i = 0; $i -lt 6; $i++) {
     Start-Sleep -Seconds 1
     try {
-        $resp = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/state" -TimeoutSec 3
-        if ($null -ne $resp.profiles) {
+        $resp = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/api/version" -TimeoutSec 3
+        if ($resp.version) {
             $HealthOk = $true
             break
         }
@@ -90,7 +90,7 @@ for ($i = 0; $i -lt 6; $i++) {
 }
 
 if (-not $HealthOk) {
-    Write-Error "Сервер не ответил на контрольный запрос http://127.0.0.1:$Port/api/state"
+    Write-Error "Сервер не ответил на контрольный запрос http://127.0.0.1:$Port/api/version"
     exit 1
 }
 

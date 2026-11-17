@@ -5,6 +5,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/asu_waybills
+Environment=PUTEVKA_HOST=0.0.0.0
+Environment=PUTEVKA_PORT=8080
 ExecStart=/opt/asu_waybills/venv/bin/python /opt/asu_waybills/server.py
 Restart=always
 RestartSec=3
