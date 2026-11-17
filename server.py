@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.1.0"
+APP_VERSION = "v8.1.1"
 
-app = FastAPI(title="ПУТЁВКА v8.1.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.1.1 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1816,6 +1816,41 @@ def documents_reclassify(payload: dict = Body(...)):
     receipts = cls.pop("receipts", [])
     cls["sha1"] = hashlib.sha1(raw).hexdigest()
     return {"status": "ok", "classification": cls, "receipts": receipts}
+
+
+@app.post("/api/documents/zip")
+def documents_zip(payload: dict = Body(...)):
+    """v8.1.1: выбранные документы одним архивом; внутри — те же папки, что в программе
+    (Водитель/Раздел/Подпапка/имя файла)."""
+    items = payload.get("items") or []
+    if not isinstance(items, list) or not items:
+        raise HTTPException(status_code=400, detail="Не выбраны документы")
+
+    def clean(part: str) -> str:
+        part = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', "_", str(part or "")).strip(" .")
+        return part[:80] or "_"
+
+    buf = io.BytesIO()
+    used = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for it in items[:2000]:
+            safe = os.path.basename(str(it.get("storedName") or ""))
+            path = os.path.join(DOCS_DIR, safe)
+            if not safe or not os.path.exists(path):
+                continue
+            folders = [clean(x) for x in (it.get("folders") or []) if str(x).strip()][:4]
+            name = clean(it.get("fileName") or safe)
+            arc = "/".join(folders + [name])
+            base, ext = os.path.splitext(arc)
+            n = 2
+            while arc in used:
+                arc = f"{base} ({n}){ext}"
+                n += 1
+            used.add(arc)
+            zf.write(path, arc)
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d")
+    return StreamingResponse(io.BytesIO(buf.getvalue()), media_type="application/zip",
+                             headers={"Content-Disposition": "attachment; filename*=UTF-8''" + urllib.parse.quote(f"Документы_{stamp}.zip")})
 
 
 @app.get("/api/documents/text/{stored_name}")
