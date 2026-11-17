@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.2.0"
+APP_VERSION = "v8.2.1"
 
-app = FastAPI(title="ПУТЁВКА v8.2.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.2.1 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -680,8 +680,14 @@ def _host_ok(request: Request) -> bool:
     return host in ("127.0.0.1", "localhost", "::1", "")
 
 
+LAST_CLIENT_SEEN = 0.0  # v8.2.1: когда окно программы последний раз обращалось к серверу
+
+
 @app.middleware("http")
 async def _auth_guard(request: Request, call_next):
+    global LAST_CLIENT_SEEN
+    if not request.headers.get("user-agent", "").startswith("Python-urllib"):  # свои проверки программы не в счёт
+        LAST_CLIENT_SEEN = time.time()
     if not _host_ok(request):
         return JSONResponse({"status": "error", "detail": "Недопустимый адрес"}, status_code=400)
     path = request.url.path
@@ -1353,6 +1359,9 @@ def export_xlsx(payload: dict = Body(...)):
 app.mount("/static", StaticFiles(directory=os.path.join(BUNDLE_DIR if not os.path.exists(os.path.join(BASE_DIR, "static")) else BASE_DIR, "static")), name="static")
 
 UPDATE_REPO = "MaksimTMB/putevka-rps"
+# v8.2.1: источники обновления можно подменить для проверки на тестовой машине (только переменными окружения)
+UPDATE_EXE_URL = os.environ.get("PUTEVKA_UPDATE_EXE_URL") or f"https://github.com/{UPDATE_REPO}/releases/latest/download/Putevka.exe"
+UPDATE_RAW_BASE = (os.environ.get("PUTEVKA_UPDATE_RAW_BASE") or f"https://raw.githubusercontent.com/{UPDATE_REPO}/main").rstrip("/")
 UPDATE_FILES = ["version.txt", "server.py", "desktop_app.py", "requirements.txt", "static/index.html", "data/app_data.json"]
 
 # Кэш последнего релиза: экономим запросы к API GitHub (лимит 60/час без токена)
@@ -1469,7 +1478,7 @@ def _download_new_exe(timeout=180):
     """
     exe_path = sys.executable
     new_path = exe_path + ".new"
-    url = f"https://github.com/{UPDATE_REPO}/releases/latest/download/Putevka.exe"
+    url = UPDATE_EXE_URL
     for _ in range(3):
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "PutevkaUpdater/1.0"})
@@ -1494,37 +1503,20 @@ def _clean_child_env():
 
 
 def _replace_windows_exe(new_path=None):
+    """v8.2.1: новый exe сам встаёт на место старого: запускаем скачанный файл с
+    «--finish-update <куда> <pid> <pid загрузчика>». Он ждёт, закрывает прежнюю версию ПО НОМЕРУ
+    процесса (раньше — по имени Putevka.exe: «Putevka (1).exe» не закрывался), копирует себя на место
+    (с повторами, если файл занят) и запускает программу. Без батника: русские пути не ломаются,
+    а логика замены — всегда из НОВОЙ версии."""
     try:
         exe_path = sys.executable
         if not new_path or not os.path.exists(new_path):
             new_path = _download_new_exe()
         if not new_path:
             return False
-        log_path = os.path.join(os.path.dirname(exe_path), "update.log")
-        bat = exe_path + ".update.bat"
-        with open(bat, "w", encoding="utf-8") as f:
-            f.write("@echo off\r\n")
-            f.write("chcp 65001 >nul\r\n")
-            # журнал замены файла для диагностики проблем обновления
-            f.write(f'echo [%date% %time%] start update > "{log_path}" 2>&1\r\n')
-            # пауза, чтобы ответ сервера и сообщение дошли до окна приложения
-            f.write("timeout /t 3 /nobreak >nul\r\n")
-            f.write("taskkill /F /IM Putevka.exe >nul 2>&1\r\n")
-            f.write(f'echo [%date% %time%] old exe stopped >> "{log_path}" 2>&1\r\n')
-            f.write("timeout /t 2 /nobreak >nul\r\n")
-            f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
-            f.write(f'if exist "{new_path}" timeout /t 3 /nobreak >nul\r\n')
-            f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
-            f.write(f'if exist "{new_path}" timeout /t 3 /nobreak >nul\r\n')
-            f.write(f'move /Y "{new_path}" "{exe_path}" >nul 2>&1\r\n')
-            f.write(f'if exist "{new_path}" (echo [%date% %time%] WARNING: new exe NOT installed, file busy >> "{log_path}" 2>&1) else (echo [%date% %time%] new exe installed >> "{log_path}" 2>&1)\r\n')
-            # запускаем программу в любом случае: если замена не удалась — запустится прежняя версия
-            f.write(f'start "" "{exe_path}"\r\n')
-            f.write('del "%~f0" >nul 2>&1\r\n')
-        # v8.1.2: батник (и запускаемый им новый exe) — с ЧИСТЫМ окружением. Иначе новый exe
-        # наследует служебные переменные PyInstaller старого процесса, считает себя «дочерним» и
-        # работает из распакованной папки СТАРОЙ версии: сервер новый, страница старая («не обновилась»).
-        subprocess.Popen(["cmd", "/c", bat], creationflags=0x00000008, close_fds=True, env=_clean_child_env())
+        subprocess.Popen([new_path, "--finish-update", exe_path, str(os.getpid()), str(os.getppid())],
+                         creationflags=0x00000008 | 0x00000200, close_fds=True,
+                         cwd=os.path.dirname(exe_path), env=_clean_child_env())
         return True
     except Exception:
         return False
@@ -1563,7 +1555,7 @@ def api_upd_apply():
     downloaded = {}
     failed = []
     for rel in UPDATE_FILES:
-        url = f"https://raw.githubusercontent.com/{UPDATE_REPO}/main/{rel}"
+        url = f"{UPDATE_RAW_BASE}/{rel}"
         ok_file = None
         for attempt in range(3):
             try:
