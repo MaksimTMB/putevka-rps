@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.0.0"
+APP_VERSION = "v8.1.0"
 
-app = FastAPI(title="ПУТЁВКА v8.0.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.1.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -995,6 +995,13 @@ def parse_fuel_upload(payload: dict = Body(...)):
                 rows = list(reader)
                 all_receipts.extend(extract_receipts_from_rows(rows, filename, azs_locs, default_year, default_month))
 
+    # v8.1.0: чей чек — по колонке «водитель / держатель карты / госномер» (если она есть)
+    profiles = st.get("profiles", []) or []
+    for r in all_receipts:
+        hint = str(r.get("driverHint") or "") if isinstance(r, dict) else ""
+        if isinstance(r, dict):
+            r["profileId"] = doc_match_profile(hint, profiles)[0] if hint else ""
+
     return {
         "status": "ok",
         "filename": filename,
@@ -1330,13 +1337,429 @@ def api_upd_apply():
     }
 
 
+# =====================================================================================
+# v8.1.0 — БРАУЗЕР ДОКУМЕНТОВ: РАСПОЗНАВАНИЕ И РАСКЛАДКА ПО ПАПКАМ
+# Любой загруженный файл читается (xlsx, docx, csv/txt/json/html; pdf и старый xls —
+# текстом, который присылает браузер), после чего определяется:
+#   • раздел (category): ведомости чеков / путевые листы / документы водителя /
+#     документы автомобиля / прочее, и подпапка (kind) — вид документа;
+#   • владелец (profileId): по госномеру, номеру ВУ, СНИЛС, ФИО — из профилей базы;
+#   • период (year/month) для ведомостей и путевых листов, срок действия (validUntil).
+# Если уверенности нет — needsReview=True: файл ложится в папку «Требуют проверки».
+# Всё в одном файле server.py: обновление из программы качает только его (UPDATE_FILES).
+# =====================================================================================
+
+DOC_CATEGORY_LABELS = {
+    "receipts": "Ведомости чеков ГСМ",
+    "waybills": "Путевые листы",
+    "driver": "Документы водителя",
+    "car": "Документы автомобиля",
+    "other": "Прочее",
+}
+
+# (раздел, подпапка, шаблоны). Порядок важен: ПТС раньше «паспорта», ОСАГО раньше прочего.
+DOC_KIND_RULES = [
+    ("car", "Страховка (ОСАГО, КАСКО)", [r"осаго", r"каско", r"страхов\w*\s+полис", r"полис\w*\s+(?:обязательного|страхования)", r"\bosago\b", r"\bkasko\b", r"\bpolis\b"]),
+    ("car", "ПТС", [r"паспорт\w*\s+транспортн\w*\s+средств", r"\bэ?птс\b", r"\bpts\b"]),
+    ("car", "СТС", [r"свидетельств\w*\s+о\s+регистрации\s+(?:тс|транспортн)", r"\bстс\b", r"\bsts\b"]),
+    ("car", "Техосмотр (диагностическая карта)", [r"диагностическ\w*\s+карт", r"техосмотр", r"технического\s+осмотра", r"\btehosmotr\b", r"\bdiagnostic"]),
+    ("car", "Ремонт и обслуживание", [r"заказ[\s-]*наряд", r"\bремонт", r"техническ\w*\s+обслуживан", r"сервисн\w*\s+книжк", r"замена\s+масла", r"\bremont\b"]),
+    ("car", "Штрафы", [r"постановлени\w*\s+(?:по\s+делу|об\s+административн)", r"\bштраф", r"\bshtraf"]),
+    ("car", "Договоры на автомобиль", [r"договор\w*\s+(?:аренды|купли)[\s\w-]{0,30}(?:транспорт|автомоб|\bтс\b)", r"акт\w*\s+при[её]ма[\s-]+передачи\s+(?:транспорт|автомоб)"]),
+    ("driver", "Водительское удостоверение", [r"водительск\w*\s+удостоверен", r"\bв/?у\b", r"\bправа\b", r"\bвод\.?\s*удост", r"\bprava\b", r"\bvu\b", r"voditel\w*\s*udost"]),
+    ("driver", "Медицинские документы", [r"медицинск\w*\s+(?:заключен|справк|осмотр|освидетельств)", r"медсправк", r"медосмотр", r"003[\s-]*в/?у", r"\bmed(?:spravka)?\b"]),
+    ("driver", "СНИЛС", [r"снилс", r"страхов\w*\s+номер\w*\s+индивидуальн", r"\bsnils\b"]),
+    ("driver", "Паспорт", [r"паспорт(?!\w*\s+транспортн)", r"\bpassport\b", r"\bpasport\b"]),
+    ("driver", "Тахограф и карта водителя", [r"тахограф", r"карт\w*\s+водителя"]),
+    ("driver", "Кадровые документы", [r"трудов\w*\s+(?:договор|книжк)", r"приказ\w*\s+о\s+при[её]ме", r"доверенност", r"\bdogovor\b"]),
+]
+
+WAYBILL_STRONG = [r"путев\w*\s+лист\w*\s+легков", r"0345001", r"оборотная\s+сторона\s+путев"]
+WAYBILL_WEAK = [r"путев\w*\s+лист", r"\bputev\w*", r"\bпл[\s_-]+\d{2}[._]\d{2}"]
+RECEIPTS_WORDS = [r"ведомост", r"транзакц", r"топливн\w*\s+карт", r"роснефть", r"отч[её]т\w*\s+по\s+карт", r"чек\w*\s+(?:азс|гсм)", r"\bgsm\b", r"\bvedomost"]
+
+RU_MONTH_FULL = {
+    "январ": 1, "феврал": 2, "март": 3, "апрел": 4, "ма[йя]": 5, "июн": 6,
+    "июл": 7, "август": 8, "сентябр": 9, "октябр": 10, "ноябр": 11, "декабр": 12,
+}
+# латинские двойники букв номера + частая транслитерация (V→В, R→Р, N→Н, S→С, U→У)
+_LAT2CYR = str.maketrans("ABEKMHOPCTYXVRNSU", "АВЕКМНОРСТУХВРНСУ")
+
+
+def _doc_norm(s: str) -> str:
+    s = str(s or "").lower().replace("ё", "е")
+    s = re.sub(r"[_+]+", " ", s)
+    return re.sub(r"\s+", " ", s)
+
+
+def _plate_norm(s: str) -> str:
+    return re.sub(r"[^0-9А-Я]", "", str(s or "").upper().replace("Ё", "Е").translate(_LAT2CYR))
+
+
+def doc_extract_text(filename: str, raw: bytes, limit: int = 60000) -> str:
+    """Текст файла силами сервера: xlsx (все листы), docx, csv/txt/json/html/xml. Без новых библиотек."""
+    low = (filename or "").lower()
+    out = []
+    total = 0
+    try:
+        if raw[:2] == b"PK" and (low.endswith((".xlsx", ".xlsm")) or b"xl/workbook" in raw[:4000] or b"[Content_Types]" in raw[:200]):
+            try:
+                wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+                for ws in wb.worksheets:
+                    out.append(ws.title)
+                    for row in ws.iter_rows(values_only=True):
+                        cells = [str(c) for c in row if c is not None and str(c).strip()]
+                        if cells:
+                            line = " | ".join(cells)
+                            out.append(line)
+                            total += len(line)
+                            if total > limit:
+                                break
+                    if total > limit:
+                        break
+                wb.close()
+                return "\n".join(out)[:limit]
+            except Exception:
+                pass
+        if raw[:2] == b"PK":
+            try:
+                zf = zipfile.ZipFile(io.BytesIO(raw))
+                names = zf.namelist()
+                if "word/document.xml" in names:
+                    xml = zf.read("word/document.xml").decode("utf-8", "ignore")
+                    xml = re.sub(r"</w:p>", "\n", xml)
+                    xml = re.sub(r"<w:tab/>|</w:tc>", " ", xml)
+                    text = re.sub(r"<[^>]+>", "", xml)
+                    return _html_unescape(text)[:limit]
+            except Exception:
+                pass
+            return ""
+        if low.endswith((".pdf", ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".heic", ".webp", ".doc", ".xls", ".zip", ".rar", ".7z")) or raw[:4] in (b"%PDF", b"\xd0\xcf\x11\xe0"):
+            return ""
+        for enc in ("utf-8-sig", "cp1251"):
+            try:
+                text = raw[: limit * 4].decode(enc)
+                break
+            except Exception:
+                text = None
+        if text is None:
+            return ""
+        if "<" in text and re.search(r"<(?:tr|td|p|div|table)\b", text, re.I):
+            text = re.sub(r"</(?:tr|p|div|li|h\d)>", "\n", text, flags=re.I)
+            text = _html_unescape(re.sub(r"<[^>]+>", " ", text))
+        return text[:limit]
+    except Exception:
+        return ""
+
+
+def _html_unescape(s: str) -> str:
+    import html as _h
+    return _h.unescape(s)
+
+
+def _doc_rows_from_raw(filename: str, raw: bytes):
+    """Строки таблиц файла (для поиска чеков): xlsx через openpyxl, csv/html — как в parse-upload."""
+    low = (filename or "").lower()
+    sheets = []
+    if raw[:2] == b"PK" and not low.endswith((".docx", ".doc")):
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(raw), data_only=True)
+            for ws in wb.worksheets:
+                sheets.append((ws.title, [list(r) for r in ws.iter_rows(values_only=True)]))
+            return sheets
+        except Exception:
+            return []
+    if low.endswith((".csv", ".txt", ".tsv", ".html", ".htm")) or (low.endswith(".xls") and raw[:1] == b"<"):
+        text = None
+        for enc in ("utf-8-sig", "cp1251"):
+            try:
+                text = raw.decode(enc)
+                break
+            except Exception:
+                continue
+        if not text:
+            return []
+        if "<tr" in text.lower():
+            rows = []
+            for tr in re.findall(r"<tr[^>]*>(.*?)</tr>", text, flags=re.I | re.S):
+                cells = [re.sub(r"<[^>]+>", " ", c).replace("&nbsp;", " ").strip() for c in re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", tr, flags=re.I | re.S)]
+                if cells:
+                    rows.append(cells)
+            return [(filename, rows)]
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        delim = ";" if sum(ln.count(";") for ln in lines[:10]) >= sum(ln.count(",") for ln in lines[:10]) else ","
+        if sum(ln.count("\t") for ln in lines[:10]) > sum(ln.count(delim) for ln in lines[:10]):
+            delim = "\t"
+        return [(filename, list(csv.reader(lines, delimiter=delim)))]
+    return []
+
+
+def _rows_from_text_table(text: str):
+    """Таблица из текста, который прислал браузер для старого .xls (строки «a | b | c»)."""
+    rows = []
+    for ln in (text or "").splitlines():
+        if " | " in ln:
+            rows.append([c.strip() for c in ln.split(" | ")])
+    return rows
+
+
+def doc_match_profile(text: str, profiles: list, extra_hints: list = None):
+    """Чей документ. Возвращает (profileId|'' , способ, {profileId: очки}). Неоднозначность → ''."""
+    norm = _doc_norm(text)
+    plate_text = _plate_norm(text)
+    digits_text = re.sub(r"\D", "", text or "")
+    scores, why = {}, {}
+
+    def add(pid, pts, reason):
+        if pts > scores.get(pid, 0):
+            scores[pid], why[pid] = pts, reason
+
+    for p in profiles or []:
+        pid = p.get("id")
+        if not pid:
+            continue
+        plate = _plate_norm(p.get("carPlate"))
+        if len(plate) >= 6:
+            core = re.match(r"^([А-Я]\d{3}[А-Я]{2})", plate)
+            if plate in plate_text or (core and core.group(1) in plate_text):
+                add(pid, 10, "госномер")
+        for fld, label in (("license", "номер ВУ"), ("snils", "СНИЛС")):
+            d = re.sub(r"\D", "", str(p.get(fld) or ""))
+            if len(d) >= 8 and d in digits_text:
+                add(pid, 10, label)
+        full = _doc_norm(p.get("driverFull"))
+        parts = [x for x in re.split(r"[\s.]+", full) if x]
+        if len(parts) >= 2 and full in norm:
+            add(pid, 8, "ФИО")
+        if parts:
+            sur = parts[0]
+            if len(parts) >= 3:
+                i1, i2 = parts[1][0], parts[2][0]
+                if re.search(rf"\b{re.escape(sur)}\s*{re.escape(i1)}\.?\s*{re.escape(i2)}\b", norm) or re.search(rf"\b{re.escape(i1)}\.?\s*{re.escape(i2)}\.?\s*{re.escape(sur)}\b", norm):
+                    add(pid, 7, "фамилия и инициалы")
+            if len(sur) >= 4 and re.search(rf"\b{re.escape(sur)}\w{{0,2}}\b", norm):
+                add(pid, 4, "фамилия")
+        short = _doc_norm(p.get("driverShort"))
+        if len(short) >= 5 and short in norm:
+            add(pid, 7, "фамилия и инициалы")
+    if not scores:
+        return "", "", {}
+    best = max(scores.values())
+    top = [pid for pid, sc in scores.items() if sc == best]
+    if len(top) != 1 or best < 4:
+        return "", "несколько совпадений" if len(top) > 1 else "", scores
+    return top[0], why[top[0]], scores
+
+
+def _doc_find_period(text: str):
+    """(год, месяц) из текста/имени: «октябрь 2026», «10.2026», «2026-10», «2026_10»."""
+    t = _doc_norm(text)
+    for stem, num in RU_MONTH_FULL.items():
+        m = re.search(rf"\b{stem}\w*\s+(20[2-3]\d)", t)
+        if m:
+            return int(m.group(1)), num
+    m = re.search(r"\b(0?[1-9]|1[0-2])[._/-](20[2-3]\d)\b", t)
+    if m:
+        return int(m.group(2)), int(m.group(1))
+    m = re.search(r"\b(20[2-3]\d)[._/-](0?[1-9]|1[0-2])\b(?![._/-]\d)", t)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    return None
+
+
+def _doc_dates(text: str):
+    out = []
+    for m in re.finditer(r"\b(0?[1-9]|[12]\d|3[01])[./](0?[1-9]|1[0-2])[./](20[2-3]\d)\b", text or ""):
+        try:
+            out.append((m.start(), datetime.date(int(m.group(3)), int(m.group(2)), int(m.group(1)))))
+        except ValueError:
+            pass
+    return out
+
+
+def _doc_valid_until(text: str):
+    """Срок действия: дата после «до/по/действителен/окончания» — самая поздняя из таких."""
+    t = text or ""
+    best = None
+    for m in re.finditer(r"(?:действит\w*|срок\w*\s+действ\w*|окончани\w*|\bдо\b|\bпо\b)[^0-9\n]{0,40}(0?[1-9]|[12]\d|3[01])[./](0?[1-9]|1[0-2])[./](20[2-4]\d)", t, re.I):
+        try:
+            d = datetime.date(int(m.group(3)), int(m.group(2)), int(m.group(1)))
+        except ValueError:
+            continue
+        if best is None or d > best:
+            best = d
+    return best.isoformat() if best else ""
+
+
+def classify_document(filename: str, raw: bytes, extracted_text: str = "", state: dict = None,
+                      fallback_profile_id: str = "", fallback_year: int = 0, fallback_month: int = 0) -> dict:
+    st = state if state is not None else load_valid_state()
+    profiles = st.get("profiles", []) or []
+    azs_locs = [l for l in st.get("locations", []) if l.get("zone") == "AZS"]
+    server_text = doc_extract_text(filename, raw)
+    text = (server_text + "\n" + (extracted_text or ""))[:120000]
+    name_text = _doc_norm(os.path.splitext(filename or "")[0])
+    body = _doc_norm(text)
+    both = name_text + " \n " + body
+    reasons = []
+
+    def hits(patterns, where):
+        return sum(1 for p in patterns if re.search(p, where))
+
+    # 1. Чеки внутри таблиц
+    receipts = []
+    sheets = _doc_rows_from_raw(filename, raw)
+    if not sheets and extracted_text and (filename or "").lower().endswith((".xls", ".ods")):
+        sheets = [(filename, _rows_from_text_table(extracted_text))]
+    fy, fm = (fallback_year or 2026), (fallback_month or 9)
+    fp = _doc_find_period(name_text + " " + body[:3000])
+    if fp:
+        fy, fm = fp
+    for sname, rows in sheets:
+        try:
+            receipts.extend(extract_receipts_from_rows(rows, sname, azs_locs, fy, fm))
+        except Exception:
+            pass
+
+    wb_strong = hits(WAYBILL_STRONG, both)
+    wb_weak = hits(WAYBILL_WEAK, both)
+    rc_words = hits(RECEIPTS_WORDS, both)
+
+    category, kind, needs_review = "other", "", False
+    if wb_strong:
+        category = "waybills"
+        reasons.append("форма путевого листа (ОКУД 0345001)")
+    elif receipts and (len(receipts) >= 2 or rc_words):
+        category = "receipts"
+        reasons.append(f"найдено чеков АЗС: {len(receipts)}")
+    elif wb_weak:
+        category = "waybills"
+        reasons.append("в названии или тексте «путевой лист»")
+    else:
+        best = None
+        for cat, k, pats in DOC_KIND_RULES:
+            sc = 3 * hits(pats, name_text) + hits(pats, body)
+            if sc and (best is None or sc > best[0]):
+                best = (sc, cat, k)
+        if best:
+            _, category, kind = best
+            reasons.append(f"распознан вид: {kind}")
+        elif rc_words and sheets:
+            category = "receipts"
+            reasons.append("похоже на ведомость, но чеки не найдены")
+            needs_review = True
+        else:
+            needs_review = True
+            reasons.append("вид документа не распознан")
+
+    # 2. Владелец: по чекам (колонка «водитель/карта/госномер»), иначе по тексту и имени файла
+    receipt_profiles = {}
+    if category == "receipts" and receipts:
+        for r in receipts:
+            hint = str(r.get("driverHint") or "")
+            pid = doc_match_profile(hint, profiles)[0] if hint else ""
+            r["profileId"] = pid
+            receipt_profiles[pid] = receipt_profiles.get(pid, 0) + 1
+    profile_id, how, scores = doc_match_profile(filename + "\n" + text, profiles)
+    named = {k: v for k, v in receipt_profiles.items() if k}
+    if len(named) >= 2:
+        profile_id, how = "", "чеки нескольких водителей"
+        reasons.append("в ведомости чеки нескольких водителей: " + ", ".join(
+            f"{(next((p.get('driverShort') or p.get('driverFull') for p in profiles if p.get('id') == k), '?'))} — {v}" for k, v in named.items()))
+    elif len(named) == 1:
+        profile_id, how = next(iter(named)), "водитель в чеках"
+    if profile_id:
+        reasons.append(f"владелец найден: {how}")
+    elif how == "чеки нескольких водителей":
+        pass
+    elif len(profiles) == 1:
+        profile_id = profiles[0].get("id", "")
+        reasons.append("единственный профиль в базе")
+    elif fallback_profile_id and any(p.get("id") == fallback_profile_id for p in profiles):
+        profile_id = fallback_profile_id
+        needs_review = True
+        reasons.append("владелец не найден в документе — положен к выбранному водителю, проверьте")
+    else:
+        needs_review = True
+        reasons.append("владелец не найден")
+
+    # 3. Период и срок действия
+    year = month = 0
+    if category == "receipts" and receipts:
+        cnt = {}
+        for r in receipts:
+            key = (int(r.get("year") or 0), int(r.get("month") or 0))
+            cnt[key] = cnt.get(key, 0) + 1
+        (year, month), _ = max(cnt.items(), key=lambda kv: kv[1])
+        if len(cnt) > 1:
+            reasons.append("чеки за несколько месяцев: " + ", ".join(f"{m:02d}.{y}" for (y, m) in sorted(cnt)))
+    elif category == "waybills":
+        m = re.search(r"срок\s+действия\W{0,5}с\W{0,3}(0?[1-9]|[12]\d|3[01])[./](0?[1-9]|1[0-2])[./](20[2-3]\d)", body)
+        if m:
+            year, month = int(m.group(3)), int(m.group(2))
+        else:
+            per = _doc_find_period(name_text) or _doc_find_period(body[:4000])
+            ds = _doc_dates(name_text + " " + text[:20000])
+            if per:
+                year, month = per
+            elif ds:
+                year, month = ds[0][1].year, ds[0][1].month
+    if category in ("receipts", "waybills") and not year:
+        if fallback_year and fallback_month:
+            year, month = fallback_year, fallback_month
+            needs_review = True
+            reasons.append("месяц не найден в документе — взят выбранный период, проверьте")
+    valid_until = _doc_valid_until(text) if category in ("driver", "car") else ""
+
+    if not category or (category == "other" and not text.strip() and not needs_review):
+        needs_review = True
+    confidence = "high" if not needs_review and (profile_id or how == "чеки нескольких водителей") else ("medium" if not needs_review else "low")
+    return {
+        "category": category,
+        "categoryLabel": DOC_CATEGORY_LABELS.get(category, "Прочее"),
+        "kind": kind,
+        "profileId": profile_id,
+        "profileMatch": how,
+        "year": year,
+        "month": month,
+        "validUntil": valid_until,
+        "needsReview": bool(needs_review),
+        "confidence": confidence,
+        "reasons": reasons,
+        "receiptsCount": len(receipts),
+        "receiptProfiles": receipt_profiles,
+        "receipts": receipts if category == "receipts" else [],
+        "textChars": len(text.strip()),
+    }
+
+
+def _doc_meta_from_type(doc_type: str, period_key: str) -> dict:
+    """Раскладка без распознавания (экспорт ПЛ, ведомость из «Чеков ГСМ»): по типу и периоду."""
+    cat = {"receipt": "receipts", "waybill": "waybills"}.get(doc_type, "")
+    m = re.search(r"(20\d{2})_(\d{1,2})", period_key or "")
+    return {
+        "category": cat or "other",
+        "categoryLabel": DOC_CATEGORY_LABELS.get(cat or "other"),
+        "kind": "",
+        "year": int(m.group(1)) if m else 0,
+        "month": int(m.group(2)) if m else 0,
+        "needsReview": not cat,
+        "confidence": "high" if cat else "low",
+        "reasons": ["создан программой" if doc_type == "waybill" else ("загружен как ведомость чеков" if cat else "тип не указан")],
+    }
+
+
 @app.post("/api/documents/upload")
 def documents_upload(payload: dict = Body(...)):
+    """Сохранить файл в data/documents/ и разложить его.
+    autoClassify=True — распознать содержимое (раздел, водитель, период, срок действия);
+    иначе — раскладка по переданному типу (экспорт ПЛ, ведомость из «Чеков ГСМ»)."""
     filename = str(payload.get("fileName") or "document").strip()
     b64 = str(payload.get("contentBase64") or "").strip()
     doc_type = str(payload.get("type") or "document")
     profile_id = str(payload.get("profileId") or "")
     period_key = str(payload.get("periodKey") or "")
+    auto = bool(payload.get("autoClassify"))
     if not b64:
         raise HTTPException(status_code=400, detail="Пустой файл")
     try:
@@ -1351,6 +1774,7 @@ def documents_upload(payload: dict = Body(...)):
     ext = os.path.splitext(safe_name)[1].lower() or ".bin"
     doc_id = "doc_" + datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(int(time.time() * 1000) % 10000)
     stored_name = doc_id + ext
+    os.makedirs(DOCS_DIR, exist_ok=True)
     path = os.path.join(DOCS_DIR, stored_name)
     with open(path, "wb") as f:
         f.write(raw)
@@ -1364,17 +1788,59 @@ def documents_upload(payload: dict = Body(...)):
         "storedName": stored_name,
         "size": len(raw),
         "date": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "sha1": hashlib.sha1(raw).hexdigest(),
     }
-    return {"status": "ok", "document": meta}
+    receipts = []
+    if auto:
+        cls = classify_document(filename, raw, str(payload.get("extractedText") or ""), None,
+                                profile_id, int(payload.get("fallbackYear") or 0), int(payload.get("fallbackMonth") or 0))
+        receipts = cls.pop("receipts", [])
+        meta.update(cls)
+        meta["type"] = {"receipts": "receipt", "waybills": "waybill"}.get(cls["category"], "document")
+    else:
+        meta.update(_doc_meta_from_type(doc_type, period_key))
+    return {"status": "ok", "document": meta, "receipts": receipts}
 
 
-@app.get("/api/documents/download/{stored_name}")
-def documents_download(stored_name: str):
+@app.post("/api/documents/reclassify")
+def documents_reclassify(payload: dict = Body(...)):
+    """Повторно распознать уже сохранённый файл (старые документы без раздела, кнопка «Разобрать заново»)."""
+    safe = os.path.basename(str(payload.get("storedName") or ""))
+    path = os.path.join(DOCS_DIR, safe)
+    if not safe or not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    with open(path, "rb") as f:
+        raw = f.read()
+    cls = classify_document(str(payload.get("fileName") or safe), raw, str(payload.get("extractedText") or ""), None,
+                            str(payload.get("fallbackProfileId") or ""), int(payload.get("fallbackYear") or 0), int(payload.get("fallbackMonth") or 0))
+    receipts = cls.pop("receipts", [])
+    cls["sha1"] = hashlib.sha1(raw).hexdigest()
+    return {"status": "ok", "classification": cls, "receipts": receipts}
+
+
+@app.get("/api/documents/text/{stored_name}")
+def documents_text(stored_name: str):
+    """Текст документа для предпросмотра (Word, таблицы, текстовые файлы)."""
     safe = os.path.basename(stored_name)
     path = os.path.join(DOCS_DIR, safe)
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Файл не найден")
-    return FileResponse(path, filename=safe)
+    with open(path, "rb") as f:
+        raw = f.read()
+    return {"status": "ok", "text": doc_extract_text(safe, raw, 200000)}
+
+
+@app.get("/api/documents/download/{stored_name}")
+def documents_download(stored_name: str, inline: int = 0, name: str = ""):
+    safe = os.path.basename(stored_name)
+    path = os.path.join(DOCS_DIR, safe)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    import mimetypes
+    media = mimetypes.guess_type(safe)[0] or "application/octet-stream"
+    # name — исходное имя файла (кириллица), чтобы скачивался «ОСАГО.pdf», а не doc_2026…pdf
+    return FileResponse(path, filename=os.path.basename(name) or safe, media_type=media,
+                        content_disposition_type="inline" if inline else "attachment")
 
 
 @app.post("/api/documents/delete")
