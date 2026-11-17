@@ -1,0 +1,52 @@
+/* ПУТЁВКА — Фирменная палитра и стили (Вариант 5) */
+:root {
+  --putevka-primary: #0052CC;
+  --putevka-primary-dark: #003E99;
+  --putevka-teal: #00A3BF;
+  --putevka-teal-light: #00C2D1;
+  --putevka-success: #10B981;
+  --putevka-bg-dark: #0F172A;
+  --putevka-surface-dark: #1E293B;
+  --putevka-text-light: #F8FAFC;
+  --putevka-gradient: linear-gradient(135deg, #00A3BF 0%, #0052CC 100%);
+}
+
+.putevka-brand-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: var(--putevka-bg-dark);
+  border-bottom: 2px solid var(--putevka-teal);
+}
+
+.putevka-brand-header img.putevka-logo {
+  height: 40px;
+  width: auto;
+  display: block;
+}
+
+.putevka-btn-primary {
+  background: var(--putevka-gradient);
+  color: #FFFFFF;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.putevka-btn-primary:hover {
+  opacity: 0.92;
+}
+
+.putevka-badge-ready {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10B981;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  border-radius: 9999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}

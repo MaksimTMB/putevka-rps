@@ -4,6 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ПУТЁВКА v7.3.5 — Форма № 3 (ОКУД 0345001)</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+  <link rel="icon" type="image/png" sizes="64x64" href="/static/putevka_icon_64.png">
+  <link rel="apple-touch-icon" sizes="256x256" href="/static/putevka_icon_256.png">
+  <link rel="stylesheet" href="/static/putevka_theme.css">
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -23,10 +27,12 @@
     }
     .sidebar-item:hover { background: #1e293b; color: #fff; }
     .sidebar-item.sidebar-active {
-      background: #2563eb; color: #fff; font-weight: 800;
-      box-shadow: 0 4px 14px rgba(37, 99, 235, .35);
+      background: linear-gradient(135deg, #00A3BF 0%, #0052CC 100%);
+      color: #fff; font-weight: 800;
+      box-shadow: 0 4px 14px rgba(0, 82, 204, .35);
     }
     .sidebar-item .sb-ico { font-size: 1.05rem; line-height: 1; }
+    .putevka-logo { height: 38px; width: auto; display: block; }
     body.driver-mode #appSidebar { display: none !important; }
     body.driver-mode { padding-left: 0 !important; }
     @media print { body { padding-left: 0 !important; } #appSidebar { display: none !important; } }
@@ -262,13 +268,12 @@
        открывается кнопкой-гамбургером в шапке. Водителю скрыт (body.driver-mode).
        План редизайна: wiki/decisions/2026-11-16-v8-redesign-plan.md -->
   <aside id="appSidebar" class="fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 border-r border-slate-800 flex flex-col -translate-x-full lg:translate-x-0 transition-transform duration-200" aria-label="Главное меню">
-    <div class="flex items-center gap-3 px-4 py-4 border-b border-slate-800 shrink-0">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-extrabold text-sm text-white tracking-tight border border-blue-400/30 shrink-0">РПС</div>
-      <div class="min-w-0">
-        <div class="font-extrabold text-white tracking-wide">ПУТЁВКА</div>
-        <div class="text-[10px] text-slate-400 font-semibold">Форма № 3 • ОКУД 0345001</div>
+    <div class="px-4 py-4 border-b border-slate-800 shrink-0">
+      <div class="flex items-center gap-2">
+        <img src="/static/putevka_logo_dark.png" alt="ПУТЁВКА" class="putevka-logo">
+        <button type="button" onclick="toggleSidebar(false)" class="lg:hidden ml-auto text-slate-400 hover:text-white text-lg px-1 shrink-0" title="Скрыть меню">✕</button>
       </div>
-      <button type="button" onclick="toggleSidebar(false)" class="lg:hidden ml-auto text-slate-400 hover:text-white text-lg px-1 shrink-0" title="Скрыть меню">✕</button>
+      <div class="text-[10px] text-slate-400 font-semibold mt-1.5">Форма № 3 • ОКУД 0345001</div>
     </div>
     <nav id="sidebarNav" class="flex-1 overflow-y-auto custom-scroll px-3 py-3 space-y-1">
       <div class="px-2 pt-1 pb-2 text-[10px] font-extrabold uppercase tracking-widest text-slate-500">Работа</div>
@@ -302,11 +307,8 @@
       <!-- 1. Слева: Кнопка меню (узкие экраны), Название, Версия, Форма -->
       <div class="md:col-span-4 flex items-center gap-3">
         <button type="button" onclick="toggleSidebar(true)" class="lg:hidden w-10 h-10 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 hover:bg-slate-700 text-lg flex items-center justify-center shrink-0" title="Открыть меню">☰</button>
-        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-extrabold text-sm tracking-tight shadow-inner border border-blue-400/30 shrink-0">
-          РПС
-        </div>
+        <img src="/static/putevka_logo_dark.png" alt="ПУТЁВКА" class="putevka-logo">
         <div class="flex flex-wrap items-center gap-2">
-          <span class="font-extrabold text-base sm:text-lg tracking-wide text-white">ПУТЁВКА</span>
           <button type="button" id="appVersionBadge" class="text-xs px-2 py-0.5 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-bold cursor-default transition">
             v7.3.5
           </button>
