@@ -271,10 +271,10 @@ for attempt in 1 2 3 4 5 6; do
   sleep 1
   if "$TARGET_DIR/venv/bin/python" -c "
 import urllib.request, json
-with urllib.request.urlopen('http://127.0.0.1:${PORT}/api/state', timeout=3) as resp:
+with urllib.request.urlopen('http://127.0.0.1:${PORT}/api/version', timeout=3) as resp:
     assert resp.status == 200
     data = json.loads(resp.read().decode('utf-8'))
-    assert isinstance(data.get('profiles'), list)
+    assert data.get('version')
 " >/dev/null 2>&1; then
     HEALTH_OK=1
     break

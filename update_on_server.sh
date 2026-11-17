@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# АСУ «ПУТЁВКА» v8.1.1 — Единый скрипт проверки окружения, полной установки,
+# АСУ «ПУТЁВКА» v8.1.2 — Единый скрипт проверки окружения, полной установки,
 # обновления, самодиагностики и запуска сервера (Linux / macOS)
 # Использование:
 #   bash setup_and_run.sh              # Установка/обновление (сброс БД к чистому релизу)
@@ -9,7 +9,7 @@
 # ==============================================================================
 set -e
 
-APP_VERSION="v8.1.1"
+APP_VERSION="v8.1.2"
 PORT="${PORT:-8080}"
 KEEP_DB=0
 USE_SYSTEMD=1
@@ -244,6 +244,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${TARGET_DIR}
+Environment=PUTEVKA_HOST=0.0.0.0
+Environment=PUTEVKA_PORT=${PORT}
 ExecStart=${TARGET_DIR}/venv/bin/python ${TARGET_DIR}/server.py
 Restart=always
 RestartSec=3
@@ -259,7 +261,7 @@ SERVICE_EOF
   STARTED_VIA="systemd (putevka.service)"
 else
   info "Запуск сервера в фоновом режиме (nohup)..."
-  nohup "$TARGET_DIR/venv/bin/python" "$TARGET_DIR/server.py" > "$TARGET_DIR/server.log" 2>&1 &
+  PUTEVKA_HOST=0.0.0.0 PUTEVKA_PORT="${PORT}" nohup "$TARGET_DIR/venv/bin/python" "$TARGET_DIR/server.py" > "$TARGET_DIR/server.log" 2>&1 &
 fi
 
 # ------------------------------------------------------------------------------
@@ -271,10 +273,10 @@ for attempt in 1 2 3 4 5 6; do
   sleep 1
   if "$TARGET_DIR/venv/bin/python" -c "
 import urllib.request, json
-with urllib.request.urlopen('http://127.0.0.1:${PORT}/api/state', timeout=3) as resp:
+with urllib.request.urlopen('http://127.0.0.1:${PORT}/api/version', timeout=3) as resp:
     assert resp.status == 200
     data = json.loads(resp.read().decode('utf-8'))
-    assert isinstance(data.get('profiles'), list)
+    assert data.get('version')
 " >/dev/null 2>&1; then
     HEALTH_OK=1
     break

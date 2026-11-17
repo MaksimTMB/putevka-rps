@@ -13,6 +13,96 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = _log_file
 
+
+# ---------------------------------------------------------------------------------------
+# v8.1.2: «программа обновилась, а окно старое». Старые версии после замены exe запускают
+# новый exe из СВОЕГО процесса — новый наследует служебные переменные PyInstaller и считает
+# себя «дочерним»: не распаковывает себя, а работает из распакованной папки СТАРОЙ версии
+# (код новый, страница и данные комплекта — старые; F5 не помогает). Воспроизведено на
+# Windows 17.11.2026: 7.3.5 → 8.1.1 = сервер v8.1.1, страница v7.3.5.
+# Признак: в нормальном запуске exe «из одного файла» наш родитель — загрузчик этого же exe.
+# Если родитель другой (батник обновления) — перезапускаемся с чистым окружением.
+# Проверка — ДО загрузки тяжёлых библиотек (из чужой папки они могут не совпасть по версии).
+# ---------------------------------------------------------------------------------------
+def _parent_is_own_bootloader():
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.windll.kernel32
+        k32.OpenProcess.restype = wintypes.HANDLE
+        h = k32.OpenProcess(0x1000, False, os.getppid())  # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return False  # родителя уже нет (батник завершился) — значит, это не наш загрузчик
+        try:
+            buf = ctypes.create_unicode_buffer(32768)
+            size = wintypes.DWORD(32768)
+            if not k32.QueryFullProcessImageNameW(h, 0, buf, ctypes.byref(size)):
+                return False
+            return os.path.samefile(buf.value, sys.executable)
+        finally:
+            k32.CloseHandle(h)
+    except Exception:
+        return True  # проверить не удалось — не мешаем обычному запуску
+
+
+def _relaunch_clean_if_foreign_bundle():
+    if not getattr(sys, "frozen", False) or os.name != "nt":
+        return
+    if os.environ.pop("PUTEVKA_RELAUNCHED", None) == "1":
+        return  # уже перезапущены — второй раз не перезапускаемся ни при каком исходе
+    if not any(k.startswith("_PYI_") or k.startswith("_MEIPASS") for k in os.environ):
+        return
+    if _parent_is_own_bootloader():
+        return
+    env = {k: v for k, v in os.environ.items() if not (k.startswith("_PYI_") or k.startswith("_MEIPASS"))}
+    env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+    env["PUTEVKA_RELAUNCHED"] = "1"
+    try:
+        print("[%s] запуск из чужой распакованной папки %s — перезапуск с чистым окружением"
+              % (time.strftime("%Y-%m-%d %H:%M:%S"), getattr(sys, "_MEIPASS", "?")))
+        subprocess.Popen([sys.executable] + sys.argv[1:], env=env, close_fds=True,
+                         cwd=os.path.dirname(sys.executable),
+                         creationflags=0x00000008 | 0x00000200)  # DETACHED | NEW_PROCESS_GROUP
+        os._exit(0)
+    except Exception:
+        pass  # не вышло — работаем как есть (как до v8.1.2)
+
+
+_relaunch_clean_if_foreign_bundle()
+
+
+def _cleanup_orphan_bundles():
+    """Убрать распакованные папки прошлых запусков программы, брошенные при обновлении
+    (старый процесс завершается принудительно и не успевает убрать за собой ~20 МБ).
+    Удаляем только папку с признаками нашей программы, старше 10 минут и НИКЕМ не занятую:
+    занятую папку (в ней загружена библиотека Python работающего процесса) Windows не даст
+    переименовать — такую пропускаем."""
+    try:
+        import tempfile, shutil
+        own = os.path.normcase(os.path.abspath(getattr(sys, "_MEIPASS", "") or ""))
+        tmp = tempfile.gettempdir()
+        for name in os.listdir(tmp):
+            if not name.startswith("_MEI"):
+                continue
+            path = os.path.join(tmp, name)
+            if os.path.normcase(os.path.abspath(path)) == own or not os.path.isdir(path):
+                continue
+            if not (os.path.exists(os.path.join(path, "static", "index.html"))
+                    and os.path.exists(os.path.join(path, "data", "app_data.json"))
+                    and os.path.exists(os.path.join(path, "version.txt"))):
+                continue
+            if time.time() - os.path.getmtime(path) < 600:
+                continue
+            trash = path + "_putevka_old"
+            try:
+                os.rename(path, trash)
+            except Exception:
+                continue  # занята работающей программой
+            shutil.rmtree(trash, ignore_errors=True)
+    except Exception:
+        pass
+
+
 import uvicorn
 import server
 
@@ -194,6 +284,7 @@ def main():
         return
 
     open_app_window(app_url)
+    threading.Thread(target=_cleanup_orphan_bundles, daemon=True).start()
 
     while True:
         time.sleep(2)
