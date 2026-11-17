@@ -1,4 +1,4 @@
-name: Build and Release v7.3.5
+name: Build and Release v8.1.0
 on:
   push:
     branches: [ main ]
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify and Publish v7.3.5
+      - name: Build Verify and Publish v8.1.0
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -25,9 +25,9 @@ jobs:
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
 
           # 1. Проверка версии и сервера
-          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "7.3.5", "version.txt должен содержать 7.3.5"
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "8.1.0", "version.txt должен содержать 8.1.0"
           import server
-          assert server.APP_VERSION == "v7.3.5", "server.APP_VERSION должен быть v7.3.5"
+          assert server.APP_VERSION == "v8.1.0", "server.APP_VERSION должен быть v8.1.0"
 
           # 2. Проверка синтаксиса JavaScript клиента
           h = pathlib.Path("static/index.html").read_text(encoding="utf-8")
@@ -37,35 +37,38 @@ jobs:
           os.remove("_chk.js")
           assert "getSeasonalNormForMonth" in h and "isSummerSeasonMonth" in h, "Отсутствует логика сезонных норм ГСМ"
           assert "stalePageBanner" in h and "checkPageServerVersionMatch" in h, "Отсутствует детектор устаревшей страницы (v7.3.3)"
+          assert "view-overview" in h and "appTopbar" in h and "view-profiles" in h, "Отсутствует каркас v8 (Обзор, верхняя панель, Профили)"
+          assert "ingestDocuments" in h and "docsTree" in h, "Отсутствует браузер документов (v8.1.0)"
+          assert "def classify_document" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Отсутствует распознавание документов (v8.1.0)"
 
           # 3. Сборка десктоп-приложения для Windows
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
 
           # 4. Формирование архивов релиза
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v7_3_5.zip", "w", zipfile.ZIP_DEFLATED)
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v8_1_0.zip", "w", zipfile.ZIP_DEFLATED)
           for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]:
               if os.path.exists(f):
                   z1.write(f, os.path.basename(f))
           z1.close()
 
           srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v7_3_5.zip", "w", zipfile.ZIP_DEFLATED)
+          z2 = zipfile.ZipFile("putevka_server_v8_1_0.zip", "w", zipfile.ZIP_DEFLATED)
           for f in srv_files:
               if os.path.exists(f):
                   z2.write(f, f)
           z2.close()
 
           os.makedirs("releases", exist_ok=True)
-          shutil.copy2("putevka_server_v7_3_5.zip", "releases/putevka_server_v7_3_5.zip")
-          shutil.copy2("putevka_windows_desktop_app_v7_3_5.zip", "releases/putevka_windows_desktop_app_v7_3_5.zip")
+          shutil.copy2("putevka_server_v8_1_0.zip", "releases/putevka_server_v8_1_0.zip")
+          shutil.copy2("putevka_windows_desktop_app_v8_1_0.zip", "releases/putevka_windows_desktop_app_v8_1_0.zip")
 
           # 5. Синхронизация собранных пакетов обратно в репозиторий
           subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
           subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
           subprocess.run(["git", "add", "-A"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync v7.3.5 release packages [skip ci]"], check=False)
+          subprocess.run(["git", "commit", "-m", "Sync v8.1.0 release packages [skip ci]"], check=False)
           subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
 
           # 6. Публикация релиза GitHub
-          subprocess.run(["gh", "release", "delete", "v7.3.5", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v7.3.5", "dist/Putevka.exe", "putevka_windows_desktop_app_v7_3_5.zip", "putevka_server_v7_3_5.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v7.3.5 — Конец «полуобновлений» портативной версии", "--notes", "Починено обновление портативной (Windows) версии из окна программы: раньше файлы на диске могли обновиться, а сам exe — нет, и программа застревала «наполовину обновлённой» (жёлтая плашка, F5 не помогает). Теперь: (1) страница всегда берётся из комплекта самого exe — рассогласование невозможно в принципе; (2) новый exe скачивается ПЕРВЫМ, и если он не скачался — обновление не начинается вовсе (программа спокойно работает прежней версией); (3) жёлтая плашка стала умной: если программа старее страницы, честно пишет «F5 не поможет — перезапустите с ярлыка или запустите update.ps1» с пошаговой подсказкой.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "delete", "v8.1.0", "--yes", "--cleanup-tag"], check=False)
+          subprocess.run(["gh", "release", "create", "v8.1.0", "dist/Putevka.exe", "putevka_windows_desktop_app_v8_1_0.zip", "putevka_server_v8_1_0.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v8.1.0 — Браузер документов: программа сама раскладывает файлы по папкам", "--notes", "Новый раздел «Документы»: загрузите любые файлы (Excel, Word, PDF, CSV, фото) — программа прочитает содержимое и сама определит, что это (ведомость чеков, путевой лист, документы водителя: права, медсправка, СНИЛС; документы автомобиля: ОСАГО, СТС, ПТС, техосмотр, ремонт, штрафы), чей это документ (по госномеру, ФИО, номеру прав, СНИЛС) и за какой месяц, и разложит по папкам Водитель → раздел → месяц или вид документа. Срок действия полисов и справок виден сразу, истекающие собраны в отдельную папку. Если программа не уверена — файл попадает в «Требуют проверки». Ведомость с чеками нескольких водителей раскладывается по их профилям. Просмотр PDF, картинок, таблиц и Word прямо в программе, переложить и переименовать в один клик, поиск, повторы не сохраняются. Старые документы разбираются автоматически.", "--latest"], check=True)
