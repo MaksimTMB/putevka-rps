@@ -2,3 +2,6 @@
 # контрольные суммы SRI в static/index.html не сходились, и браузер не запускал скрипты (страница без оформления).
 static/vendor/** -text
 static/ocr/** -text
+# v8.5.6: скрипты для Linux — всегда с переводами строк LF: на Windows-сборке git сделал бы их CRLF,
+# и install.sh из выпуска не запустился бы в Linux («bash: $'\r': command not found»).
+*.sh text eol=lf
