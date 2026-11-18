@@ -4,15 +4,15 @@ if sys.stderr is None: sys.stderr = open(os.devnull, 'w', encoding='utf-8')
 import os, io, shutil, re, csv, base64, json, datetime, zipfile, urllib.parse, urllib.request, hashlib
 import subprocess, threading, time
 from fastapi import FastAPI, Body, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.5.1"
+APP_VERSION = "v8.5.2"
 
-app = FastAPI(title="ПУТЁВКА v8.5.1 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.5.2 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1407,6 +1407,60 @@ def get_ocr_model(name: str):
     raise HTTPException(status_code=404, detail="Модель распознавания не найдена — ВУ читается прежним способом")
 
 
+# v8.5.2: библиотеки страницы — в программе. cdn.tailwindcss.com, cdn.sheetjs.com и cdnjs.cloudflare.com из России
+# открываются не всегда (Cloudflare): без оформления страница показывала все экраны разом и вход не работал.
+# Отдаём из папки установки или из пакета exe; файла нет (сервер обновлён старой версией и ещё не докачал) — с прежнего CDN.
+VENDOR_FILES = {
+    "tailwind-3.4.17.js": "https://cdn.tailwindcss.com/3.4.17",
+    "chart-4.4.1.umd.min.js": "https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js",
+    "xlsx-0.20.3.full.min.js": "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js",
+    "pdf-3.11.174.min.js": "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+    "pdf.worker-3.11.174.min.js": "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+}
+ASSET_FILES = ["static/ocr/" + n for n in OCR_MODEL_FILES] + ["static/vendor/" + n for n in VENDOR_FILES] + ["static/vendor/NOTICE.txt"]
+
+
+@app.get("/vendor/{name}")
+def get_vendor(name: str):
+    if name not in VENDOR_FILES:
+        raise HTTPException(status_code=404, detail="Нет такого файла")
+    for root in (BASE_DIR, BUNDLE_DIR):
+        p = os.path.join(root, "static", "vendor", name)
+        if os.path.isfile(p):
+            return FileResponse(p, media_type="application/javascript; charset=utf-8", headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    return RedirectResponse(VENDOR_FILES[name], status_code=302)
+
+
+def _fetch_missing_assets():
+    """v8.5.2: установка «из файлов» (сервер): докачать модели ВУ и библиотеки страницы, если их нет. В exe они внутри."""
+    got = []
+    if IS_FROZEN:
+        return got
+    for rel in ASSET_FILES:
+        dest = os.path.join(BASE_DIR, *rel.split("/"))
+        if os.path.isfile(dest):
+            continue
+        try:
+            req = urllib.request.Request(f"{UPDATE_RAW_BASE}/{rel}", headers={"User-Agent": "PutevkaUpdater/1.0"})
+            with urllib.request.urlopen(req, timeout=180) as r:
+                data = r.read()
+            if not data:
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            with open(dest + ".updtmp", "wb") as f:
+                f.write(data)
+            os.replace(dest + ".updtmp", dest)
+            got.append(rel)
+        except Exception as e:
+            _err_log("assets", e, rel)
+    return got
+
+
+@app.on_event("startup")
+def _assets_on_start():
+    threading.Thread(target=_fetch_missing_assets, daemon=True).start()
+
+
 app.mount("/static", StaticFiles(directory=os.path.join(BUNDLE_DIR if not os.path.exists(os.path.join(BASE_DIR, "static")) else BASE_DIR, "static")), name="static")
 
 UPDATE_REPO = "MaksimTMB/putevka-rps"
@@ -1655,26 +1709,10 @@ def api_upd_apply():
         except Exception:
             failed.append(rel)
 
-    # v8.5.0: модели распознавания ВУ (~10 МБ) — один раз, если их нет. Только установка «из файлов»:
-    # в exe они внутри. Не скачались — не беда: ВУ читается прежним способом, обновление не отменяется.
+    # v8.5.0/8.5.2: модели ВУ и библиотеки страницы — один раз, если их нет (только установка «из файлов»; в exe они внутри).
+    # Не скачались — не беда: страница возьмёт библиотеки с прежних CDN, ВУ прочитается прежним способом.
     if updated and not IS_FROZEN:
-        for name in OCR_MODEL_FILES:
-            dest = os.path.join(BASE_DIR, "static", "ocr", name)
-            if os.path.isfile(dest):
-                continue
-            try:
-                req = urllib.request.Request(f"{UPDATE_RAW_BASE}/static/ocr/{name}", headers={"User-Agent": "PutevkaUpdater/1.0"})
-                with urllib.request.urlopen(req, timeout=180) as r:
-                    data = r.read()
-                if not data:
-                    continue
-                os.makedirs(os.path.dirname(dest), exist_ok=True)
-                with open(dest + ".updtmp", "wb") as f:
-                    f.write(data)
-                os.replace(dest + ".updtmp", dest)
-                updated.append("static/ocr/" + name)
-            except Exception:
-                pass
+        updated.extend(_fetch_missing_assets())
 
     # Реальная установленная версия — из скачанного version.txt, а не из API релизов
     real_version = latest
