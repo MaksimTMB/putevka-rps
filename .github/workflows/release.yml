@@ -1,4 +1,4 @@
-name: Build and Release v8.5.3
+name: Build and Release v8.5.4
 on:
   push:
     branches: [ main ]
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify and Publish v8.5.3
+      - name: Build Verify and Publish v8.5.4
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -25,9 +25,9 @@ jobs:
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
 
           # 1. Проверка версии и сервера
-          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "8.5.3", "version.txt должен содержать 8.5.3"
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "8.5.4", "version.txt должен содержать 8.5.4"
           import server
-          assert server.APP_VERSION == "v8.5.3", "server.APP_VERSION должен быть v8.5.3"
+          assert server.APP_VERSION == "v8.5.4", "server.APP_VERSION должен быть v8.5.4"
 
           # 2. Проверка синтаксиса JavaScript клиента
           h = pathlib.Path("static/index.html").read_text(encoding="utf-8")
@@ -61,6 +61,7 @@ jobs:
           for _n, _want in _sri:
               _got = "sha384-" + _b64.b64encode(_hl.sha384(pathlib.Path("static/vendor/" + _n).read_bytes()).digest()).decode()
               assert _got == _want, f"Контрольная сумма static/vendor/{_n} не сходится с index.html — файл изменён при выгрузке (переводы строк?) (v8.5.3)"
+          assert "prof.mechanic || prof.driverShort" not in h, "Вернулась подстановка водителя вместо механика (v8.5.4)"
           assert "def _ask_migrate" in _d and "_find_data_dirs" not in _d, "Перенос базы при установке — только с вопросом, без поиска по папкам (v8.3.0)"
           assert "def _install_and_handoff" in _d and "--finish-update" in _d and "--finish-update" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Нет установки в одно место и обновления без батника (v8.2.1)"
           assert "CSP_PAGE" in pathlib.Path("server.py").read_text(encoding="utf-8") and "pbkdf2_sha256" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Нет защиты данных (v8.2.0)"
@@ -87,14 +88,14 @@ jobs:
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--icon", "putevka.ico", "--version-file", "file_version_info.txt", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
 
           # 4. Формирование архивов релиза
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v8_5_3.zip", "w", zipfile.ZIP_DEFLATED)
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v8_5_4.zip", "w", zipfile.ZIP_DEFLATED)
           for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]:
               if os.path.exists(f):
                   z1.write(f, os.path.basename(f))
           z1.close()
 
           srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "static/ocr/ppocr_det_v3.onnx", "static/ocr/ppocr_eslav_rec_v5.onnx", "static/ocr/ppocr_eslav_dict.txt", "static/ocr/NOTICE.txt", "static/vendor/tailwind-3.4.17.js", "static/vendor/chart-4.4.1.umd.min.js", "static/vendor/xlsx-0.20.3.full.min.js", "static/vendor/pdf-3.11.174.min.js", "static/vendor/pdf.worker-3.11.174.min.js", "static/vendor/NOTICE.txt", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v8_5_3.zip", "w", zipfile.ZIP_DEFLATED)
+          z2 = zipfile.ZipFile("putevka_server_v8_5_4.zip", "w", zipfile.ZIP_DEFLATED)
           for f in srv_files:
               if os.path.exists(f):
                   z2.write(f, f)
@@ -103,5 +104,5 @@ jobs:
           # 5. Архивы и exe — только в релизе (раньше коммитились в репозиторий вместе с build/ и dist/)
 
           # 6. Публикация релиза GitHub
-          subprocess.run(["gh", "release", "delete", "v8.5.3", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v8.5.3", "dist/Putevka.exe", "putevka_windows_desktop_app_v8_5_3.zip", "putevka_server_v8_5_3.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v8.5.3 — исправлена сборка 8.5.2 для Windows", "--notes", "В Windows-версии 8.5.2 библиотеки страницы попадали в программу с изменёнными переводами строк, контрольные суммы не сходились, и браузер не запускал их — окно программы было без оформления. Исправлено; сборка теперь сверяет контрольную сумму каждой библиотеки. Остальное — как в 8.5.2: оформление, Excel, графики и чтение PDF внутри программы, без недоступных из России сайтов.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "delete", "v8.5.4", "--yes", "--cleanup-tag"], check=False)
+          subprocess.run(["gh", "release", "create", "v8.5.4", "dist/Putevka.exe", "putevka_windows_desktop_app_v8_5_4.zip", "putevka_server_v8_5_4.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v8.5.4 — «Механик» без подстановки водителя", "--notes", "На «Обзоре» в строке «Ответственные» при пустом поле «Механик» подставлялся водитель — теперь «Механик: —», механик берётся только из карточки. В путевых листах подстановки не было. Остальное — как в 8.5.3.", "--latest"], check=True)
