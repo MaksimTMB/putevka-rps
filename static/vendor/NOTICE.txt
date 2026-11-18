@@ -1,0 +1,10 @@
+Библиотеки страницы программы «Путёвка» (v8.5.2) — хранятся в программе, а не берутся с чужих CDN:
+из России cdn.tailwindcss.com, cdn.sheetjs.com и cdnjs.cloudflare.com открываются не всегда.
+
+tailwind-3.4.17.js          — Tailwind CSS 3.4.17 (Play CDN), MIT License, https://tailwindcss.com
+xlsx-0.20.3.full.min.js     — SheetJS Community Edition 0.20.3, Apache License 2.0, https://sheetjs.com
+chart-4.4.1.umd.min.js      — Chart.js 4.4.1, MIT License, https://www.chartjs.org
+pdf-3.11.174.min.js         — PDF.js 3.11.174, Apache License 2.0, https://mozilla.github.io/pdf.js/
+pdf.worker-3.11.174.min.js  — PDF.js 3.11.174 (фоновый обработчик), Apache License 2.0
+
+Файлы не изменялись; совпадают с опубликованными (контрольные суммы SRI — в static/index.html).

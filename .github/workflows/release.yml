@@ -1,4 +1,4 @@
-name: Build and Release v8.5.1
+name: Build and Release v8.5.2
 on:
   push:
     branches: [ main ]
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify and Publish v8.5.1
+      - name: Build Verify and Publish v8.5.2
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -25,9 +25,9 @@ jobs:
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
 
           # 1. Проверка версии и сервера
-          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "8.5.1", "version.txt должен содержать 8.5.1"
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "8.5.2", "version.txt должен содержать 8.5.2"
           import server
-          assert server.APP_VERSION == "v8.5.1", "server.APP_VERSION должен быть v8.5.1"
+          assert server.APP_VERSION == "v8.5.2", "server.APP_VERSION должен быть v8.5.2"
 
           # 2. Проверка синтаксиса JavaScript клиента
           h = pathlib.Path("static/index.html").read_text(encoding="utf-8")
@@ -53,6 +53,8 @@ jobs:
           assert "async function vuPPLines" in h and "function vuPlaceNorm" in h and "def get_ocr_model" in _srv, "Нет чтения ВУ нейросетью (v8.5.0)"
           assert pathlib.Path("static/ocr/ppocr_det_v3.onnx").stat().st_size > 2_000_000 and pathlib.Path("static/ocr/ppocr_eslav_rec_v5.onnx").stat().st_size > 7_000_000 and pathlib.Path("static/ocr/ppocr_eslav_dict.txt").exists() and pathlib.Path("static/ocr/NOTICE.txt").exists(), "Нет моделей распознавания ВУ (v8.5.0)"
           assert "function vuScript" in h and "function vuLatShow" in h and "vuUploadCard.lastError" in h and "def _err_log" in _srv, "Нет правок чтения ВУ и сохранения фото (v8.5.1)"
+          assert all(pathlib.Path("static/vendor/" + _n).stat().st_size > 100_000 for _n in ("tailwind-3.4.17.js", "chart-4.4.1.umd.min.js", "xlsx-0.20.3.full.min.js", "pdf-3.11.174.min.js", "pdf.worker-3.11.174.min.js")) and "def get_vendor" in _srv, "Нет библиотек страницы в программе (v8.5.2)"
+          assert not re.search(r'src="https://cdn\.(tailwindcss|sheetjs)\.com|cdnjs\.cloudflare\.com/ajax/libs/pdf', h), "Страница снова грузит библиотеки с недоступных из России CDN (v8.5.2)"
           assert "def _ask_migrate" in _d and "_find_data_dirs" not in _d, "Перенос базы при установке — только с вопросом, без поиска по папкам (v8.3.0)"
           assert "def _install_and_handoff" in _d and "--finish-update" in _d and "--finish-update" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Нет установки в одно место и обновления без батника (v8.2.1)"
           assert "CSP_PAGE" in pathlib.Path("server.py").read_text(encoding="utf-8") and "pbkdf2_sha256" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Нет защиты данных (v8.2.0)"
@@ -79,14 +81,14 @@ jobs:
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--icon", "putevka.ico", "--version-file", "file_version_info.txt", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
 
           # 4. Формирование архивов релиза
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v8_5_1.zip", "w", zipfile.ZIP_DEFLATED)
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v8_5_2.zip", "w", zipfile.ZIP_DEFLATED)
           for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]:
               if os.path.exists(f):
                   z1.write(f, os.path.basename(f))
           z1.close()
 
-          srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "static/ocr/ppocr_det_v3.onnx", "static/ocr/ppocr_eslav_rec_v5.onnx", "static/ocr/ppocr_eslav_dict.txt", "static/ocr/NOTICE.txt", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v8_5_1.zip", "w", zipfile.ZIP_DEFLATED)
+          srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "static/ocr/ppocr_det_v3.onnx", "static/ocr/ppocr_eslav_rec_v5.onnx", "static/ocr/ppocr_eslav_dict.txt", "static/ocr/NOTICE.txt", "static/vendor/tailwind-3.4.17.js", "static/vendor/chart-4.4.1.umd.min.js", "static/vendor/xlsx-0.20.3.full.min.js", "static/vendor/pdf-3.11.174.min.js", "static/vendor/pdf.worker-3.11.174.min.js", "static/vendor/NOTICE.txt", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
+          z2 = zipfile.ZipFile("putevka_server_v8_5_2.zip", "w", zipfile.ZIP_DEFLATED)
           for f in srv_files:
               if os.path.exists(f):
                   z2.write(f, f)
@@ -95,5 +97,5 @@ jobs:
           # 5. Архивы и exe — только в релизе (раньше коммитились в репозиторий вместе с build/ и dist/)
 
           # 6. Публикация релиза GitHub
-          subprocess.run(["gh", "release", "delete", "v8.5.1", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v8.5.1", "dist/Putevka.exe", "putevka_windows_desktop_app_v8_5_1.zip", "putevka_server_v8_5_1.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v8.5.1 — чтение ВУ по настоящему бланку, сохранение фото с причиной ошибки", "--notes", "Чтение ВУ выверено по раскладке настоящего бланка: мелкая латиница больше не теряется, красный номер оборота с большими промежутками читается, номер, разбитый голограммой, собирается по цифрам, а красный номер оборота главнее номера с лицевой; «OBLAST» в латинице больше не портит «ОБЛ.»; строки, прочитанные вперемешку русскими и латинскими буквами («Г. MOCКВА»), узнаются; раздел 14 — отдельной строкой; категории в рамках перечитываются целиком; снимок, уже обрезанный по карточке, не путается с таблицей оборота. Фото ВУ: если не сохранилось — программа пишет настоящую причину (например, закончился сеанс входа), прочитанное всё равно показывает, ошибка записи файла — в журнал data/errors.log.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "delete", "v8.5.2", "--yes", "--cleanup-tag"], check=False)
+          subprocess.run(["gh", "release", "create", "v8.5.2", "dist/Putevka.exe", "putevka_windows_desktop_app_v8_5_2.zip", "putevka_server_v8_5_2.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v8.5.2 — программа открывается без чужих сайтов", "--notes", "Оформление страницы (Tailwind), Excel (SheetJS), графики (Chart.js) и чтение PDF (pdf.js) теперь внутри программы. Раньше они брались с cdn.tailwindcss.com, cdn.sheetjs.com и cdnjs.cloudflare.com, которые из России открываются не всегда: в браузере без кэша (например, Хром в режиме инкогнито) страница была без оформления, показывала все экраны разом и вход не работал, а окно программы на Windows открывалось на ~30 секунд дольше. Серверная установка сама докачивает недостающие файлы при запуске. Остальное — как в 8.5.1.", "--latest"], check=True)
