@@ -983,7 +983,7 @@
             </div>
             <div>
               <label class="block font-extrabold text-emerald-800 mb-1">Вместимость бака (30–200 л):</label>
-              <input type="text" inputmode="decimal" id="setTankCap" class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <input type="text" inputmode="decimal" id="setTankCap" placeholder="например, 72" class="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-extrabold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
             </div>
           </div>
 
@@ -1068,7 +1068,7 @@
             </div>
             <div>
               <label class="block font-semibold text-slate-600 mb-1">Класс ВУ (U13):</label>
-              <input type="text" id="setLicenseClass" value="В" oninput="renderInlineSettingsHeaderPreview()" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white" />
+              <input type="text" id="setLicenseClass" value="" placeholder="B, M" oninput="renderInlineSettingsHeaderPreview()" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white" />
             </div>
             <div>
               <label class="block font-semibold text-slate-600 mb-1">Сведения о перевозке (G15):</label>
@@ -1166,7 +1166,7 @@
           </div>
           <div>
             <label class="pv-label">Вместимость бака (30–200 л):</label>
-            <input type="text" inputmode="decimal" id="inputQuickTankCap" value="70" class="pv-input" />
+            <input type="text" inputmode="decimal" id="inputQuickTankCap" value="" placeholder="из карточки" class="pv-input" />
           </div>
         </div>
 
@@ -1189,11 +1189,11 @@
             <div class="v" id="kpiTotalBurned">218.47 л</div>
           </div>
           <div class="kpi kpi-sm">
-            <div class="k">Мин. остаток (резерв ≥ <span id="kpiMinResLabel">8</span> л)</div>
-            <div class="v" id="kpiMinReserve">8.70 л</div>
+            <div class="k">Мин. остаток (резерв ≥ <span id="kpiMinResLabel">—</span> л)</div>
+            <div class="v" id="kpiMinReserve">—</div>
           </div>
           <div class="kpi kpi-sm">
-            <div class="k">Макс. в баке (бак <span id="kpiCapLabel">70</span> л)</div>
+            <div class="k">Макс. в баке (бак <span id="kpiCapLabel">—</span> л)</div>
             <div class="v" id="kpiMaxTank">53.97 л</div>
           </div>
         </div>
@@ -1256,7 +1256,7 @@
             <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-200">
               <div>
                 <div class="flex items-center gap-2">
-                  <h3 class="pv-h2" id="selectedDayTitle">Путевой лист от 01.09.2026</h3>
+                  <h3 class="pv-h2" id="selectedDayTitle">Путевой лист</h3>
                   <span id="selectedDayFuelBadge" class="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 font-bold">АИ-92</span>
                 </div>
                 <p class="text-xs text-slate-500 mt-0.5" id="selectedDayRefuelNote">Выезд: 9-00 • Возврат: 18-00</p>
@@ -1407,7 +1407,7 @@
           <div id="fuelYearTabsContainer" class="flex flex-wrap items-center gap-2"></div>
         </div>
         <div class="space-y-2">
-          <div class="pv-eyebrow">Месяцы <span id="fuelSelectedYearLabel">2026</span> года</div>
+          <div class="pv-eyebrow">Месяцы <span id="fuelSelectedYearLabel"></span> года</div>
           <div id="fuelMonthTabsContainer" class="flex flex-wrap items-center gap-2"></div>
         </div>
       </aside>
@@ -1903,11 +1903,11 @@
                 </div>
                 <div>
                   <label class="block text-emerald-800 font-extrabold mb-1">Объем бака (30–200 л):</label>
-                  <input type="text" inputmode="decimal" id="inspTankCap" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-extrabold text-slate-900" />
+                  <input type="text" inputmode="decimal" id="inspTankCap" placeholder="например, 72" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-extrabold text-slate-900" />
                 </div>
                 <div>
                   <label class="block text-slate-700 font-bold mb-1">Мин. резерв (2–30 л):</label>
-                  <input type="text" inputmode="decimal" id="inspMinReserve" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white font-bold" />
+                  <input type="text" inputmode="decimal" id="inspMinReserve" placeholder="например, 8" class="w-full rounded-xl border border-slate-300 px-3 py-2 bg-white font-bold" />
                 </div>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
@@ -1920,11 +1920,11 @@
                 </div>
                 <div>
                   <label class="block text-emerald-800 font-bold mb-1">☀️ Норма Лето (апр–окт), л/100:</label>
-                  <input type="text" inputmode="decimal" id="inspNormSummer" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-extrabold text-slate-900" />
+                  <input type="text" inputmode="decimal" id="inspNormSummer" placeholder="по паспорту/приказу" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-extrabold text-slate-900" />
                 </div>
                 <div>
                   <label class="block text-blue-800 font-bold mb-1">❄️ Норма Зима (нояб–март), л/100:</label>
-                  <input type="text" inputmode="decimal" id="inspNormWinter" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-extrabold text-slate-900" />
+                  <input type="text" inputmode="decimal" id="inspNormWinter" placeholder="по паспорту/приказу" class="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 font-extrabold text-slate-900" />
                 </div>
               </div>
             </div>
@@ -2181,7 +2181,7 @@
           <!-- Навигация по дням прямо в предпросмотре -->
           <div class="bg-slate-800 p-1 rounded-xl border border-slate-700 flex items-center gap-1 text-xs">
             <button type="button" onclick="stepPreviewDay(-1)" class="btn btn-secondary btn-sm" title="Предыдущий день">◀</button>
-            <span id="prevModalDateBadge" class="px-2 font-bold text-amber-300">01.09.2026</span>
+            <span id="prevModalDateBadge" class="px-2 font-bold text-amber-300">—</span>
             <button type="button" onclick="stepPreviewDay(1)" class="btn btn-secondary btn-sm" title="Следующий день">▶</button>
           </div>
 
@@ -2235,12 +2235,12 @@
             <option value="1">Январь</option><option value="2">Февраль</option><option value="3">Март</option>
             <option value="4">Апрель</option><option value="5">Май</option><option value="6">Июнь</option>
             <option value="7">Июль</option><option value="8">Август</option><option value="9">Сентябрь</option>
-            <option value="10">Октябрь</option><option value="11" selected>Ноябрь</option><option value="12">Декабрь</option>
+            <option value="10">Октябрь</option><option value="11">Ноябрь</option><option value="12">Декабрь</option>
           </select>
         </div>
         <div>
           <label class="block font-bold text-slate-700 mb-1">Год (2020–2035):</label>
-          <input type="text" inputmode="numeric" id="modalYearNum" value="2026" class="w-full rounded-xl border border-slate-300 px-3 py-2.5 font-bold" />
+          <input type="text" inputmode="numeric" id="modalYearNum" value="" class="w-full rounded-xl border border-slate-300 px-3 py-2.5 font-bold" />
         </div>
         <div class="col-span-2">
           <label class="block font-bold text-slate-700 mb-1">Начальный остаток топлива на 1 число (л):</label>
@@ -2398,7 +2398,7 @@
       activeProfileId: (RAW_INIT.profiles && RAW_INIT.profiles[0]) ? RAW_INIT.profiles[0].id : '',
       inspectedProfileId: (RAW_INIT.profiles && RAW_INIT.profiles[0]) ? RAW_INIT.profiles[0].id : '',
       currentMonthKey: '',
-      selectedFuelYear: 2026,
+      selectedFuelYear: new Date().getFullYear(),
       selectedDayIndex: 0,
       locations: RAW_INIT.locations || [],
       dwgPreviews: RAW_INIT.dwg_previews || {},
@@ -2840,17 +2840,17 @@
       driverFull: '',
       driverShort: '',
       license: '',
-      licenseClass: 'В',
+      licenseClass: '',
       tabNumber: '',
       snils: '',
       carModel: '',
       carPlate: '',
       garageNumber: '',
-      tankCap: 60,
-      minReserve: 8.0,
+      tankCap: null,
+      minReserve: null,
       defaultFuelGrade: '92',
-      normSummer: 16.8,
-      normWinter: 18.7,
+      normSummer: null,
+      normWinter: null,
       orgFull: '',
       orgShort: '',
       okpo: '',
@@ -2876,17 +2876,17 @@
         driverFull: '',
         driverShort: '',
         license: '',
-        licenseClass: 'В',
+        licenseClass: '',
         tabNumber: '',
         snils: '',
         carModel: '',
         carPlate: '',
         garageNumber: '',
-        tankCap: 60,
-        minReserve: 8.0,
+        tankCap: null,
+        minReserve: null,
         defaultFuelGrade: '92',
-        normSummer: 16.8,
-        normWinter: 18.7,
+        normSummer: null,
+        normWinter: null,
         orgFull: '',
         orgShort: '',
         okpo: '',
@@ -2908,6 +2908,52 @@
       };
     }
 
+    // v8.4.0: никаких «зашитых» значений машины и водителя. Бак, резерв и нормы вводит человек;
+    // пока их нет — месяц не рассчитывается (раньше молча подставлялись цифры УАЗ Патриот).
+    function nowYM() { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() + 1 }; }
+    function todayRu() { const d = new Date(); return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`; }
+    const FUEL_PARAM_FIELDS = [['tankCap', 'объём бака'], ['minReserve', 'минимальный остаток'], ['normSummer', 'норма «лето»'], ['normWinter', 'норма «зима»']];
+    function fuelParamsMissing(p) { return FUEL_PARAM_FIELDS.filter(([k]) => !(Number(p && p[k]) > 0)).map(([, t]) => t); }
+    function numOrEmpty(v) { return Number(v) > 0 ? String(v) : ''; }
+    function numText(v, unit) { return Number(v) > 0 ? `${v} ${unit}` : 'не указан'; }
+    function profLabel(p) {
+      const car = [p && p.carModel, p && p.carPlate].filter(Boolean).join(' ');
+      const tank = p && Number(p.tankCap) > 0 ? `бак ${p.tankCap} л` : '';
+      const extra = [car, tank].filter(Boolean).join(', ');
+      return (p && (p.driverShort || p.driverFull) || 'водитель без имени') + (extra ? ` (${extra})` : '');
+    }
+    function requireFuelParams(p, what) {
+      const miss = fuelParamsMissing(p);
+      if (!miss.length) return true;
+      const txt = `Чтобы ${what}, заполните в карточке водителя: ${miss.join(', ')}.\nБез этих данных расход топлива не рассчитать — программа больше не подставляет их сама.`;
+      if (typeof pvAskChoice === 'function') {
+        pvAskChoice('Не хватает данных машины', txt, [{ label: 'Открыть карточку водителя', value: 'open', kind: 'primary' }, { label: 'Позже', value: 'no' }])
+          .then(v => { if (v === 'open') { if (p && p.id) state.inspectedProfileId = p.id; switchTab('profiles'); } }).catch(() => {});
+      } else showToast(txt, true);
+      return false;
+    }
+    // Число из поля карточки: пусто → null (пока по профилю нет рассчитанных месяцев), не число → прежнее значение
+    function readFuelNum(raw, prof, key, minV, maxV, title) {
+      const str = String(raw ?? '').replace(',', '.').trim();
+      const old = Number(prof && prof[key]) > 0 ? Number(prof[key]) : null;
+      const hasMonths = Object.values((prof && prof.periods) || {}).some(per => per && per.days && per.days.length);
+      if (!str) {
+        if (old != null && hasMonths) { showToast(`Поле «${title}» нельзя оставить пустым: по нему уже рассчитаны месяцы. Оставлено ${old}.`, true); return old; }
+        return null;
+      }
+      const n = parseFloat(str);
+      if (!isFinite(n)) { showToast(`Поле «${title}»: «${str}» — не число. ${old != null ? 'Оставлено ' + old : 'Поле осталось пустым'}.`, true); return old; }
+      return parseAndValidateNum(n, n, minV, maxV, title);
+    }
+    function ensureActivePeriodForAction(what) {
+      const rp = ensureRealActiveProfile();
+      if (!requireFuelParams(rp, what)) return null;
+      const { y, m } = nowYM();
+      const pk = createCleanPeriodObject(rp, y, m, parseFloat((document.getElementById('inputStartTank') || {}).value) || 20);
+      state.currentMonthKey = pk;
+      return rp.periods[pk];
+    }
+
     function ensureRealActiveProfile() {
       let prof = state.profiles.find(p => p.id === state.activeProfileId) || state.profiles[0];
       if (!prof) {
@@ -2916,8 +2962,8 @@
         const elCarMod = document.getElementById('setCarModel');
         const elCarPlt = document.getElementById('setCarPlate');
         prof = createNewEmptyProfileObj({
-          driverFull: (elDrvFull && elDrvFull.value.trim()) || 'Водитель 1',
-          driverShort: (elDrvShort && elDrvShort.value.trim()) || 'Водитель 1',
+          driverFull: (elDrvFull && elDrvFull.value.trim()) || '',
+          driverShort: (elDrvShort && elDrvShort.value.trim()) || '',
           carModel: (elCarMod && elCarMod.value.trim()) || '',
           carPlate: (elCarPlt && elCarPlt.value.trim()) || ''
         });
@@ -4800,7 +4846,7 @@
       }
 
       document.getElementById('hdrCarInfo').textContent = (prof.carModel || prof.carPlate) ? `${prof.carModel || '—'} (${prof.carPlate || '—'})` : 'Автомобиль не задан';
-      document.getElementById('hdrTankInfo').textContent = `Бак: ${prof.tankCap || 60} л • Мин. резерв: ${prof.minReserve || 8} л • АИ-${prof.defaultFuelGrade || '92'}`;
+      document.getElementById('hdrTankInfo').textContent = `Бак: ${numText(prof.tankCap, 'л')} • Мин. резерв: ${numText(prof.minReserve, 'л')} • АИ-${prof.defaultFuelGrade || '92'}`;
       document.getElementById('hdrDriverInfo').textContent = prof.driverFull || 'Водитель не задан';
       document.getElementById('hdrDocsInfo').textContent = `ВУ: ${prof.license || '—'} • СНИЛС: ${prof.snils || '—'}`;
       document.getElementById('hdrOrgInfo').textContent = prof.orgShort || prof.orgFull || 'Организация не задана';
@@ -4837,13 +4883,13 @@
         if (fuelStartEl) fuelStartEl.value = curPer.startTank;
         refreshStartTankInputs();
         const rangeBadge = document.getElementById('fuelStartAllowedRangeBadge');
-        if (rangeBadge) rangeBadge.textContent = `Допустимо: от ${prof.minReserve} до ${prof.tankCap} л`;
+        if (rangeBadge) rangeBadge.textContent = fuelParamsMissing(prof).length ? 'Заполните бак и резерв в карточке водителя' : `Допустимо: от ${prof.minReserve} до ${prof.tankCap} л`;
         const titleSpan = document.getElementById('fuelStartBalancePeriodTitle');
         if (titleSpan) titleSpan.textContent = curPer.title;
       }
-      document.getElementById('inputQuickTankCap').value = prof.tankCap;
-      document.getElementById('kpiCapLabel').textContent = prof.tankCap;
-      document.getElementById('kpiMinResLabel').textContent = prof.minReserve;
+      document.getElementById('inputQuickTankCap').value = numOrEmpty(prof.tankCap);
+      document.getElementById('kpiCapLabel').textContent = numOrEmpty(prof.tankCap) || '—';
+      document.getElementById('kpiMinResLabel').textContent = numOrEmpty(prof.minReserve) || '—';
       if (state.currentTab === 'overview') renderOverview();
     }
 
@@ -4937,7 +4983,7 @@
       } else if (state.currentTab === 'users') {
         renderAdminProfilesMasterDetail();
       }
-      showToast(`Выбран водитель: ${prof.driverFull} (${prof.carModel}, бак ${prof.tankCap} л)`);
+      showToast(`Выбран водитель: ${profLabel(prof)}`);
     }
 
     function onMonthChange() {
@@ -4955,9 +5001,9 @@
     }
 
     function applyAndSaveQuickParams() {
-      const prof = getActiveProfile();
       let curPer = getActivePeriodObj();
-      if (!curPer) { const rp = ensureRealActiveProfile(); const pk = createCleanPeriodObject(rp, 2026, 9, parseFloat((document.getElementById('inputStartTank')||{}).value)||20); state.currentMonthKey = pk; curPer = rp.periods[pk]; }
+      if (!curPer) { curPer = ensureActivePeriodForAction('сохранить параметры месяца'); if (!curPer) return; }
+      const prof = getActiveProfile();
 
       const newCap = Math.round(parseAndValidateNum(document.getElementById('inputQuickTankCap').value, 70, 30, 200, 'Вместимость бака'));
       const minRes = Math.max(2, Math.min(newCap * 0.45, Number(prof.minReserve) || 8.0));
@@ -4983,9 +5029,9 @@
     }
 
     function applyFuelStartTankAndRebalance() {
-      const prof = getActiveProfile();
       let curPer = getActivePeriodObj();
-      if (!curPer) { const rp = ensureRealActiveProfile(); const pk = createCleanPeriodObject(rp, 2026, 9, parseFloat((document.getElementById('inputStartTank')||{}).value)||20); state.currentMonthKey = pk; curPer = rp.periods[pk]; }
+      if (!curPer) { curPer = ensureActivePeriodForAction('пересчитать месяц'); if (!curPer) return; }
+      const prof = getActiveProfile();
 
       const tankCap = Math.max(30, Math.min(200, Number(prof.tankCap) || 70));
       const minRes = Math.max(2, Math.min(tankCap * 0.45, Number(prof.minReserve) || 8.0));
@@ -5032,10 +5078,10 @@
     function populateAddDaySelect() {
       const sel = document.getElementById('addDayDateSelect');
       if (!sel) return;
-      let curPer = getActivePeriodObj();
-      if (!curPer) { const rp = ensureRealActiveProfile(); const pk = createCleanPeriodObject(rp, 2026, 9, parseFloat((document.getElementById('inputStartTank')||{}).value)||20); state.currentMonthKey = pk; curPer = rp.periods[pk]; }
-      const yNum = Number(curPer.year) || 2026;
-      const mNum = Number(curPer.month) || 9;
+      const curPer = getActivePeriodObj();
+      if (!curPer) { sel.innerHTML = '<option value="">— сначала создайте месяц —</option>'; return; }
+      const yNum = Number(curPer.year) || nowYM().y;
+      const mNum = Number(curPer.month) || nowYM().m;
       const wNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
 
       const opts = [];
@@ -5073,9 +5119,9 @@
         return;
       }
       const isoDate = sel.value;
-      const prof = getActiveProfile();
       let curPer = getActivePeriodObj();
-      if (!curPer) { const rp = ensureRealActiveProfile(); const pk = createCleanPeriodObject(rp, 2026, 9, parseFloat((document.getElementById('inputStartTank')||{}).value)||20); state.currentMonthKey = pk; curPer = rp.periods[pk]; }
+      if (!curPer) { curPer = ensureActivePeriodForAction('добавить день'); if (!curPer) return; }
+      const prof = getActiveProfile();
 
       const existingIdx = curPer.days.findIndex(d => d.date === isoDate);
       if (existingIdx >= 0) {
@@ -5640,10 +5686,10 @@
       if (!prof) return;
 
       document.getElementById('drvHeaderTitle').textContent = `Путевые листы: ${prof.driverFull}`;
-      document.getElementById('drvCarInfo').textContent = `${prof.carModel} (${prof.carPlate})`;
-      document.getElementById('drvTankInfo').textContent = `Бак: ${prof.tankCap} л • АИ-${prof.defaultFuelGrade || '92'}`;
+      document.getElementById('drvCarInfo').textContent = [prof.carModel, prof.carPlate].filter(Boolean).join(' · ') || 'Автомобиль не задан';
+      document.getElementById('drvTankInfo').textContent = `Бак: ${numText(prof.tankCap, 'л')} • АИ-${prof.defaultFuelGrade || '92'}`;
       document.getElementById('drvNameInfo').textContent = prof.driverFull;
-      document.getElementById('drvDocsInfo').textContent = `ВУ: ${prof.license} • СНИЛС: ${prof.snils}`;
+      document.getElementById('drvDocsInfo').textContent = `ВУ: ${prof.license || '—'} • СНИЛС: ${prof.snils || '—'}`;
       document.getElementById('drvOrgInfo').textContent = prof.orgShort;
       document.getElementById('drvBaseInfo').textContent = `База: ${prof.baseAddress}`;
 
@@ -5743,7 +5789,7 @@
       return { dep, arr };
     }
     function getFrontOverrides(prof, dayObj) {
-      const dStr = (dayObj && dayObj.date_ru) ? dayObj.date_ru : '01.09.2026', fg = String((dayObj && dayObj.fuel_grade) || (prof && prof.defaultFuelGrade) || '92'), refVal = dayObj ? Number(dayObj.refueled || 0) : 0, burnedNum = dayObj ? Number(dayObj.burned || 0) : 0;
+      const dStr = (dayObj && dayObj.date_ru) ? dayObj.date_ru : todayRu(), fg = String((dayObj && dayObj.fuel_grade) || (prof && prof.defaultFuelGrade) || '92'), refVal = dayObj ? Number(dayObj.refueled || 0) : 0, burnedNum = dayObj ? Number(dayObj.burned || 0) : 0;
       let recNo = ''; if (refVal > 0 && dayObj) { const days = typeof getCurrentMonthDays === 'function' ? getCurrentMonthDays() : [], dIdx = days.indexOf(dayObj), inp = dIdx >= 0 ? document.getElementById('recNum_' + dIdx) : null, seq = days.filter(x => Number(x.refueled) > 0).indexOf(dayObj); recNo = String((inp && inp.value.trim()) || dayObj.receipt_num || (seq >= 0 ? seq + 1 : 1)); dayObj.receipt_num = recNo; }
       const dayTimes = getDayDepArrTimes(prof, dayObj);
       return {'1,18': prof.waybillSeries || '', '1,22': (dayObj && dayObj.waybill_num) || prof.waybillNumberPrefix || '', '3,7': dStr, '3,13': dStr, '4,22': prof.okud || '0345001', '5,4': prof.orgFull || '', '5,22': prof.okpo || '',
@@ -5755,7 +5801,7 @@
     }
 
     function getBackOverrides(prof, dayObj) {
-      const dStr = dayObj ? dayObj.date_ru : '01.09.2026';
+      const dStr = dayObj ? dayObj.date_ru : todayRu();
       const wbNum = (dayObj && dayObj.waybill_num) || prof.waybillNumberPrefix || '';
       const ov = {
         '1,0': `Оборотная сторона путевого листа легкового автомобиля № ${wbNum} от ${dStr}`,
@@ -5892,7 +5938,7 @@
       if (!container) return;
       const prof = buildPreviewProfileFromSettingsInputs();
       const days = getExportableMonthDays();
-      const d = days[state.selectedDayIndex] || days.find(x => !x.excluded) || days[0] || { date_ru: '01.09.2026', fuel_grade: prof.defaultFuelGrade || '92', start_tank: parseFloat((document.getElementById('inputStartTank')||{}).value)||20, end_tank: parseFloat((document.getElementById('inputStartTank')||{}).value)||20, burned: 0, refueled: 0 };
+      const d = days[state.selectedDayIndex] || days.find(x => !x.excluded) || days[0] || { date_ru: todayRu(), fuel_grade: prof.defaultFuelGrade || '92', start_tank: parseFloat((document.getElementById('inputStartTank')||{}).value)||20, end_tank: parseFloat((document.getElementById('inputStartTank')||{}).value)||20, burned: 0, refueled: 0 };
       container.innerHTML = renderExactForm0345001Html(state.xlsSchema.s1, state.xlsSchema.styles, getFrontOverrides(prof, d), false);
     }
 
@@ -5920,7 +5966,7 @@
         p.okud = g('setOkud') || '0345001';
         p.garageNumber = g('setGarageNumber');
         p.tabNumber = g('setTabNumber');
-        p.licenseClass = g('setLicenseClass') || 'В';
+        p.licenseClass = g('setLicenseClass');
         p.transportInfo = g('setTransportInfo') || 'перевозка для собственных нужд';
         p.mechanic = g('setMechanic');
         p.depTimeDefault = g('setDepTimeDefault') || '9-00';
@@ -6396,7 +6442,7 @@
       Object.values(prof.periods || {}).forEach(per => {
         if (per && per.year) yearsSet.add(Number(per.year));
       });
-      if (yearsSet.size === 0) yearsSet.add(2026);
+      if (yearsSet.size === 0) yearsSet.add(nowYM().y);
       return Array.from(yearsSet).sort((a, b) => a - b);
     }
 
@@ -6706,9 +6752,9 @@
     }
 
     function saveReceiptsBottom() {
-      const prof = getActiveProfile();
       let curPer = getActivePeriodObj();
-      if (!curPer) { const rp = ensureRealActiveProfile(); const pk = createCleanPeriodObject(rp, 2026, 9, parseFloat((document.getElementById('inputStartTank')||{}).value)||20); state.currentMonthKey = pk; curPer = rp.periods[pk]; }
+      if (!curPer) { curPer = ensureActivePeriodForAction('сохранить чеки'); if (!curPer) return; }
+      const prof = getActiveProfile();
 
       const tankCap = Math.max(30, Math.min(200, Number(prof.tankCap) || 70));
       const minRes = Math.max(2, Math.min(tankCap * 0.45, Number(prof.minReserve) || 8.0));
@@ -6850,8 +6896,14 @@
     }
 
     function createNewMonthPeriodPrompt() {
-      const prof = getActiveProfile();
+      const prof = ensureRealActiveProfile();
+      if (!requireFuelParams(prof, 'создать месяц')) return;
       const curPer = getActivePeriodObj();
+      const ym = (curPer && curPer.year && curPer.month)
+        ? (Number(curPer.month) === 12 ? { y: Number(curPer.year) + 1, m: 1 } : { y: Number(curPer.year), m: Number(curPer.month) + 1 })
+        : nowYM();
+      const mSel = document.getElementById('modalMonthNum'); if (mSel) mSel.value = String(ym.m);
+      const yInp = document.getElementById('modalYearNum'); if (yInp) yInp.value = String(ym.y);
       const startEl = document.getElementById('modalStartTank');
       if (startEl && curPer && curPer.days && curPer.days.length) {
         startEl.value = curPer.days[curPer.days.length - 1].end_tank.toFixed(2);
@@ -6861,10 +6913,11 @@
 
     function confirmCreateNewPeriod() {
       const prof = ensureRealActiveProfile();
+      if (!requireFuelParams(prof, 'создать месяц')) return;
       const tankCap = Math.max(30, Math.min(200, Number(prof.tankCap) || 70));
       const minRes = Math.max(2, Math.min(tankCap * 0.45, Number(prof.minReserve) || 8.0));
-      const mNum = Math.round(parseAndValidateNum(document.getElementById('modalMonthNum').value, 11, 1, 12, 'Месяц'));
-      const yNum = Math.round(parseAndValidateNum(document.getElementById('modalYearNum').value, 2026, 2020, 2035, 'Год'));
+      const mNum = Math.round(parseAndValidateNum(document.getElementById('modalMonthNum').value, nowYM().m, 1, 12, 'Месяц'));
+      const yNum = Math.round(parseAndValidateNum(document.getElementById('modalYearNum').value, nowYM().y, 2020, 2035, 'Год'));
       const initStart = +parseAndValidateNum(document.getElementById('modalStartTank').value, 20.0, minRes, tankCap, 'Начальный остаток').toFixed(2);
 
       const key = createCleanPeriodObject(prof, yNum, mNum, initStart);
@@ -6928,7 +6981,7 @@
       return '';
     }
 
-    function parseDateAndTimeCellClient(val, ctxYear = 2026, ctxMonth = 9) {
+    function parseDateAndTimeCellClient(val, ctxYear = nowYM().y, ctxMonth = nowYM().m) {
       if (val === null || val === undefined || val === '') return null;
       if (val instanceof Date && !isNaN(val.getTime())) {
         const yy = val.getFullYear();
@@ -7002,7 +7055,7 @@
       return null;
     }
 
-    function extractReceiptsFromRowsClient(rows, sheetName, defaultYear = 2026, defaultMonth = 9) {
+    function extractReceiptsFromRowsClient(rows, sheetName, defaultYear = nowYM().y, defaultMonth = nowYM().m) {
       if (!Array.isArray(rows) || !rows.length) return [];
       let ctxYear = defaultYear;
       let ctxMonth = defaultMonth;
@@ -7195,6 +7248,7 @@
 
     function applyImportedReceiptsToProfile(prof, receiptsList) {
       if (!prof || !Array.isArray(receiptsList) || !receiptsList.length) return null;
+      if (!requireFuelParams(prof, 'применить чеки')) return null;
       const tankCap = Math.max(30, Math.min(200, Number(prof.tankCap) || 70));
       const maxRefuel = maxReceiptLiters(tankCap);
 
@@ -7219,8 +7273,8 @@
       // Группируем распознанные чеки по (год, месяц)
       const byPeriod = new Map();
       receiptsList.forEach(rec => {
-        const y = Number(rec.year) || 2026;
-        const m = Number(rec.month) || 9;
+        const y = Number(rec.year) || nowYM().y;
+        const m = Number(rec.month) || nowYM().m;
         const ymKey = `${y}_${m}`;
         if (!byPeriod.has(ymKey)) byPeriod.set(ymKey, { year: y, month: m, items: [] });
         byPeriod.get(ymKey).items.push(rec);
@@ -7397,8 +7451,8 @@
 
       const prof = ensureRealActiveProfile();
       const curPer = getActivePeriodObj();
-      const defaultYear = curPer && curPer.year ? Number(curPer.year) : (Number(state.selectedFuelYear) || 2026);
-      const defaultMonth = curPer && curPer.month ? Number(curPer.month) : 9;
+      const defaultYear = curPer && curPer.year ? Number(curPer.year) : (Number(state.selectedFuelYear) || nowYM().y);
+      const defaultMonth = curPer && curPer.month ? Number(curPer.month) : nowYM().m;
 
       let allParsedReceipts = [];
       const fileNames = [];
@@ -8679,8 +8733,8 @@
       document.getElementById('setOkpo').value = p.okpo || '';
       document.getElementById('setCarModel').value = p.carModel || '';
       document.getElementById('setCarPlate').value = p.carPlate || '';
-      document.getElementById('setTankCap').value = p.tankCap || 70;
-      document.getElementById('setMinReserve').value = p.minReserve || 8.0;
+      document.getElementById('setTankCap').value = numOrEmpty(p.tankCap);
+      document.getElementById('setMinReserve').value = numOrEmpty(p.minReserve);
       document.getElementById('setDriverFull').value = p.driverFull || '';
       document.getElementById('setDriverShort').value = p.driverShort || '';
       document.getElementById('setLicense').value = p.license || '';
@@ -8690,15 +8744,15 @@
       document.getElementById('setBaseAddress').value = p.baseAddress || '';
       const sSummerView = document.getElementById('setNormSummerView');
       const sWinterView = document.getElementById('setNormWinterView');
-      if (sSummerView) sSummerView.textContent = `${p.normSummer || 16.8} л/100`;
-      if (sWinterView) sWinterView.textContent = `${p.normWinter || 18.7} л/100`;
+      if (sSummerView) sSummerView.textContent = numText(p.normSummer, 'л/100');
+      if (sWinterView) sWinterView.textContent = numText(p.normWinter, 'л/100');
 
       document.getElementById('setWaybillSeries').value = p.waybillSeries || '';
       document.getElementById('setWaybillNumPrefix').value = p.waybillNumberPrefix || '';
       document.getElementById('setOkud').value = p.okud || '0345001';
       document.getElementById('setGarageNumber').value = p.garageNumber || '';
       document.getElementById('setTabNumber').value = p.tabNumber || '';
-      document.getElementById('setLicenseClass').value = p.licenseClass || 'В';
+      document.getElementById('setLicenseClass').value = p.licenseClass || '';
       document.getElementById('setTransportInfo').value = p.transportInfo || 'перевозка для собственных нужд';
       document.getElementById('setMechanic').value = p.mechanic || '';
       document.getElementById('setDepTimeDefault').value = p.depTimeDefault || '9-00';
@@ -8714,8 +8768,8 @@
       p.okpo = document.getElementById('setOkpo').value.trim();
       p.carModel = document.getElementById('setCarModel').value.trim();
       p.carPlate = document.getElementById('setCarPlate').value.trim();
-      p.tankCap = Math.round(parseAndValidateNum(document.getElementById('setTankCap').value, 70, 30, 200, 'Вместимость бака'));
-      p.minReserve = parseAndValidateNum(document.getElementById('setMinReserve').value, 8.0, 2, Math.floor(p.tankCap * 0.45), 'Мин. резерв');
+      { const tc = readFuelNum(document.getElementById('setTankCap').value, p, 'tankCap', 30, 200, 'Вместимость бака'); p.tankCap = tc == null ? null : Math.round(tc); }
+      p.minReserve = readFuelNum(document.getElementById('setMinReserve').value, p, 'minReserve', 2, p.tankCap ? Math.floor(p.tankCap * 0.45) : 30, 'Мин. резерв');
       p.driverFull = document.getElementById('setDriverFull').value.trim();
       p.driverShort = document.getElementById('setDriverShort').value.trim();
       p.license = document.getElementById('setLicense').value.trim();
@@ -8729,7 +8783,7 @@
       p.okud = document.getElementById('setOkud').value.trim() || '0345001';
       p.garageNumber = document.getElementById('setGarageNumber').value.trim();
       p.tabNumber = document.getElementById('setTabNumber').value.trim();
-      p.licenseClass = document.getElementById('setLicenseClass').value.trim() || 'В';
+      p.licenseClass = document.getElementById('setLicenseClass').value.trim();
       p.transportInfo = document.getElementById('setTransportInfo').value.trim();
       p.mechanic = document.getElementById('setMechanic').value.trim();
       p.depTimeDefault = document.getElementById('setDepTimeDefault').value.trim() || '9-00';
@@ -8737,13 +8791,15 @@
       p.accountantRole = document.getElementById('setAccountantRole').value.trim() || 'гл.бухгалтер';
       p.medOrgPre = document.getElementById('setMedOrgPre').value.trim();
 
-      Object.values(p.periods || {}).forEach(per => enforceStrictFuelPhysics(p, per));
-      syncCrossMonthCarryOver(p);   // v8.2.0: бак мог стать меньше — чеки должны помещаться
+      if (!fuelParamsMissing(p).length) {
+        Object.values(p.periods || {}).forEach(per => enforceStrictFuelPhysics(p, per));
+        syncCrossMonthCarryOver(p);   // v8.2.0: бак мог стать меньше — чеки должны помещаться
+      }
       syncSettingsInputs();
       renderHeaderAndSelectors();
       renderAllGeneratorViews();
       renderInlineSettingsHeaderPreview();
-      saveAllState(`Настройки шапки сохранены (${p.driverShort}, бак ${p.tankCap} л)`);
+      saveAllState(`Настройки шапки сохранены: ${profLabel(p)}` + (fuelParamsMissing(p).length ? `. Для расчёта не хватает: ${fuelParamsMissing(p).join(', ')}` : ''));
     }
 
     // =========================================================================
@@ -8957,7 +9013,7 @@
                 <div class="text-xs text-slate-700 mt-0.5">${htmlEsc(p.carModel || '')} • <b>${htmlEsc(p.carPlate || '—')}</b></div>
                 <div class="text-[11px] text-slate-500 mt-0.5">${htmlEsc(p.orgShort || '')}</div>
                 <div class="flex flex-wrap items-center gap-2 mt-1.5 text-[11px]">
-                  <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">Бак: ${p.tankCap} л</span>
+                  <span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold">Бак: ${numText(p.tankCap, 'л')}</span>
                   <span class="text-slate-500">Периодов: ${periodsCount}</span>
                 </div>
               </div>
@@ -8971,11 +9027,11 @@
       document.getElementById('inspTitle').textContent = `Карточка: ${inspProf.driverFull || 'новый водитель'}`;
       document.getElementById('inspCarModel').value = inspProf.carModel || '';
       document.getElementById('inspCarPlate').value = inspProf.carPlate || '';
-      document.getElementById('inspTankCap').value = inspProf.tankCap || 70;
-      document.getElementById('inspMinReserve').value = inspProf.minReserve || 8.0;
+      document.getElementById('inspTankCap').value = numOrEmpty(inspProf.tankCap);
+      document.getElementById('inspMinReserve').value = numOrEmpty(inspProf.minReserve);
       document.getElementById('inspDefaultFuel').value = inspProf.defaultFuelGrade || '92';
-      document.getElementById('inspNormSummer').value = inspProf.normSummer || 16.8;
-      document.getElementById('inspNormWinter').value = inspProf.normWinter || 18.7;
+      document.getElementById('inspNormSummer').value = numOrEmpty(inspProf.normSummer);
+      document.getElementById('inspNormWinter').value = numOrEmpty(inspProf.normWinter);
 
       document.getElementById('inspDriverFull').value = inspProf.driverFull || '';
       document.getElementById('inspDriverShort').value = inspProf.driverShort || '';
@@ -9007,16 +9063,16 @@
       let p = state.profiles.find(x => x.id === state.inspectedProfileId);
       if (!p) { p = ensureRealActiveProfile(); state.inspectedProfileId = p.id; }
 
-      p.carModel = document.getElementById('inspCarModel').value.trim() || 'УАЗ Патриот';
+      p.carModel = document.getElementById('inspCarModel').value.trim();
       p.carPlate = document.getElementById('inspCarPlate').value.trim();
-      p.tankCap = Math.round(parseAndValidateNum(document.getElementById('inspTankCap').value, 70, 30, 200, 'Объем бака'));
-      p.minReserve = parseAndValidateNum(document.getElementById('inspMinReserve').value, 8.0, 2, Math.floor(p.tankCap * 0.45), 'Мин. резерв');
+      { const tc = readFuelNum(document.getElementById('inspTankCap').value, p, 'tankCap', 30, 200, 'Объем бака'); p.tankCap = tc == null ? null : Math.round(tc); }
+      p.minReserve = readFuelNum(document.getElementById('inspMinReserve').value, p, 'minReserve', 2, p.tankCap ? Math.floor(p.tankCap * 0.45) : 30, 'Мин. резерв');
       p.defaultFuelGrade = document.getElementById('inspDefaultFuel').value;
-      p.normSummer = parseAndValidateNum(document.getElementById('inspNormSummer').value, 16.8, 4, 40, 'Норма Лето');
-      p.normWinter = parseAndValidateNum(document.getElementById('inspNormWinter').value, 18.7, 4, 40, 'Норма Зима');
+      p.normSummer = readFuelNum(document.getElementById('inspNormSummer').value, p, 'normSummer', 4, 40, 'Норма Лето');
+      p.normWinter = readFuelNum(document.getElementById('inspNormWinter').value, p, 'normWinter', 4, 40, 'Норма Зима');
 
-      p.driverFull = document.getElementById('inspDriverFull').value.trim() || 'Водитель';
-      p.driverShort = document.getElementById('inspDriverShort').value.trim() || 'Водитель';
+      p.driverFull = document.getElementById('inspDriverFull').value.trim();
+      p.driverShort = document.getElementById('inspDriverShort').value.trim();
       p.tabNumber = document.getElementById('inspTabNumber').value.trim();
       p.garageNumber = document.getElementById('inspGarageNumber').value.trim();
       p.license = document.getElementById('inspLicense').value.trim();
@@ -9038,14 +9094,16 @@
       setTimeout(loadDeadlines, 400);
 
       state.activeProfileId = p.id;
-      Object.values(p.periods || {}).forEach(per => enforceStrictFuelPhysics(p, per));
-      syncCrossMonthCarryOver(p);
+      if (!fuelParamsMissing(p).length) {
+        Object.values(p.periods || {}).forEach(per => enforceStrictFuelPhysics(p, per));
+        syncCrossMonthCarryOver(p);
+      }
       renderHeaderAndSelectors();
       syncSettingsInputs();
       renderAllGeneratorViews();
       renderAdminProfilesMasterDetail();
       renderUsersTable();
-      saveAllState(`Профиль и шапка водителя «${p.driverShort}» (${p.carModel}, бак ${p.tankCap} л) сохранены`);
+      saveAllState(`Профиль водителя сохранён: ${profLabel(p)}` + (fuelParamsMissing(p).length ? `. Для расчёта путевых листов заполните: ${fuelParamsMissing(p).join(', ')}` : ''));
     }
 
     function createNewDriverProfile() {
@@ -9057,17 +9115,17 @@
         driverFull: '',
         driverShort: '',
         license: '',
-        licenseClass: tpl.licenseClass || 'В',
+        licenseClass: tpl.licenseClass || '',
         tabNumber: '',
         snils: '',
         carModel: '',
         carPlate: '',
         garageNumber: '',
-        tankCap: 60,
-        minReserve: 8.0,
+        tankCap: null,
+        minReserve: null,
         defaultFuelGrade: tpl.defaultFuelGrade || '92',
-        normSummer: 16.8,
-        normWinter: 18.7,
+        normSummer: null,
+        normWinter: null,
         orgFull: tpl.orgFull || '',
         orgShort: tpl.orgShort || '',
         okpo: tpl.okpo || '',
