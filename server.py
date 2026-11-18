@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.4.0"
+APP_VERSION = "v8.5.0"
 
-app = FastAPI(title="ПУТЁВКА v8.4.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.5.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -1389,6 +1389,24 @@ def export_xlsx(payload: dict = Body(...)):
     )
 
 
+# v8.5.0: модели распознавания водительского удостоверения (PP-OCR, PaddleOCR, Apache-2.0).
+# В exe они внутри файла программы, у установки «из файлов» — в static/ocr. Отдаём оттуда, где есть:
+# после обновления static/ берётся из папки установки, а модели остаются внутри нового exe.
+OCR_MODEL_FILES = ("ppocr_det_v3.onnx", "ppocr_eslav_rec_v5.onnx", "ppocr_eslav_dict.txt")
+
+
+@app.get("/ocr-models/{name}")
+def get_ocr_model(name: str):
+    if name not in OCR_MODEL_FILES:
+        raise HTTPException(status_code=404, detail="Нет такого файла")
+    for root in (BASE_DIR, BUNDLE_DIR):
+        p = os.path.join(root, "static", "ocr", name)
+        if os.path.isfile(p):
+            media = "text/plain; charset=utf-8" if name.endswith(".txt") else "application/octet-stream"
+            return FileResponse(p, media_type=media, headers={"Cache-Control": "public, max-age=31536000, immutable"})
+    raise HTTPException(status_code=404, detail="Модель распознавания не найдена — ВУ читается прежним способом")
+
+
 app.mount("/static", StaticFiles(directory=os.path.join(BUNDLE_DIR if not os.path.exists(os.path.join(BASE_DIR, "static")) else BASE_DIR, "static")), name="static")
 
 UPDATE_REPO = "MaksimTMB/putevka-rps"
@@ -1636,6 +1654,27 @@ def api_upd_apply():
             updated.append(rel)
         except Exception:
             failed.append(rel)
+
+    # v8.5.0: модели распознавания ВУ (~10 МБ) — один раз, если их нет. Только установка «из файлов»:
+    # в exe они внутри. Не скачались — не беда: ВУ читается прежним способом, обновление не отменяется.
+    if updated and not IS_FROZEN:
+        for name in OCR_MODEL_FILES:
+            dest = os.path.join(BASE_DIR, "static", "ocr", name)
+            if os.path.isfile(dest):
+                continue
+            try:
+                req = urllib.request.Request(f"{UPDATE_RAW_BASE}/static/ocr/{name}", headers={"User-Agent": "PutevkaUpdater/1.0"})
+                with urllib.request.urlopen(req, timeout=180) as r:
+                    data = r.read()
+                if not data:
+                    continue
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with open(dest + ".updtmp", "wb") as f:
+                    f.write(data)
+                os.replace(dest + ".updtmp", dest)
+                updated.append("static/ocr/" + name)
+            except Exception:
+                pass
 
     # Реальная установленная версия — из скачанного version.txt, а не из API релизов
     real_version = latest

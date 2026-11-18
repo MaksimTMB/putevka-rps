@@ -1,0 +1,14 @@
+Модели распознавания текста для чтения водительского удостоверения с фото (v8.5.0)
+=================================================================================
+
+ppocr_det_v3.onnx         — PP-OCRv3 mobile, поиск строк текста (PaddleOCR)
+ppocr_eslav_rec_v5.onnx   — PP-OCRv5 mobile, восточнославянские языки (русский, английский и др.)
+ppocr_eslav_dict.txt      — словарь знаков к модели распознавания
+
+Источник: PaddleOCR, https://github.com/PaddlePaddle/PaddleOCR
+Перевод в формат ONNX: https://huggingface.co/monkt/paddleocr-onnx
+Лицензия: Apache License 2.0, https://www.apache.org/licenses/LICENSE-2.0
+Copyright (c) PaddlePaddle Authors. Файлы не изменялись (только переименованы).
+
+Распознавание выполняется в окне программы (onnxruntime-web, WebAssembly);
+снимок удостоверения никуда не отправляется.
