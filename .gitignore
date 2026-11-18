@@ -22,3 +22,4 @@ data/sessions.json
 data/backups/
 data/documents/
 data/*.backup.json
+data/errors.log*

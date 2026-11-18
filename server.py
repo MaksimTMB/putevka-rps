@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.5.0"
+APP_VERSION = "v8.5.1"
 
-app = FastAPI(title="ПУТЁВКА v8.5.0 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.5.1 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -2162,10 +2162,15 @@ def documents_upload(payload: dict = Body(...)):
     ext = os.path.splitext(safe_name)[1].lower() or ".bin"
     doc_id = "doc_" + datetime.datetime.now().strftime("%Y%m%d%H%M%S") + "_" + str(int(time.time() * 1000) % 10000)
     stored_name = doc_id + ext
-    os.makedirs(DOCS_DIR, exist_ok=True)
     path = os.path.join(DOCS_DIR, stored_name)
-    with open(path, "wb") as f:
-        f.write(raw)
+    try:
+        os.makedirs(DOCS_DIR, exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(raw)
+    except Exception as e:
+        # v8.5.1: раньше — 500 без объяснения, в окне «сервер не ответил»; теперь причина видна и записана в журнал
+        _err_log("documents/upload", e, f"{DOCS_DIR} ({len(raw)} байт)")
+        raise HTTPException(status_code=500, detail=f"не удалось записать файл в папку документов программы: {type(e).__name__}: {e}")
 
     meta = {
         "id": doc_id,
@@ -2780,6 +2785,18 @@ def _sec_save(d: dict):
     except Exception:
         pass
     os.replace(tmp, SECURITY_FILE)
+
+
+ERRORS_LOG = os.path.join(DATA_DIR, "errors.log")
+
+
+def _err_log(where: str, exc: Exception, extra: str = ""):
+    """v8.5.1: журнал ошибок data/errors.log (сбои записи файлов и т. п.) — чтобы причину можно было найти."""
+    try:
+        with open(ERRORS_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {where}: {type(exc).__name__}: {exc} {extra}\n")
+    except Exception:
+        pass
 
 
 def _sec_log(event: str, request: Request = None, login: str = ""):
