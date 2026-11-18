@@ -14,7 +14,7 @@ $DataDir = Join-Path $AppDir "data"
 
 New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
 
-Write-Host "=== АСУ ПУТЁВКА v8.2.1 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
+Write-Host "=== АСУ ПУТЁВКА v8.3.0 - Прямое обновление из GitHub ===" -ForegroundColor Cyan
 
 $CurDb = Join-Path $DataDir "putevka_db.json"
 
@@ -52,7 +52,7 @@ foreach ($LnkPath in @($DesktopLnk, $StartMenuLnk)) {
     $Lnk.Save()
 }
 
-Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v8.2.1" -ForegroundColor Green
+Write-Host "[OK] УСПЕШНО! Приложение обновлено до версии v8.3.0" -ForegroundColor Green
 Write-Host "Ярлык на Рабочем столе: $DesktopLnk" -ForegroundColor Green
 Write-Host "Ярлык в меню «Пуск»: $StartMenuLnk" -ForegroundColor Green
 

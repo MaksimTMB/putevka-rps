@@ -10,9 +10,9 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-APP_VERSION = "v8.2.1"
+APP_VERSION = "v8.3.0"
 
-app = FastAPI(title="ПУТЁВКА v8.2.1 — Форма № 3 (ОКУД 0345001)")
+app = FastAPI(title="ПУТЁВКА v8.3.0 — Форма № 3 (ОКУД 0345001)")
 
 import sys
 if getattr(sys, "frozen", False):
@@ -504,14 +504,16 @@ from fastapi.responses import JSONResponse
 
 SESSION_COOKIE = "putevka_sid"
 SESSION_TTL = 7 * 24 * 3600
+SESSION_IDLE = 24 * 3600  # v8.3.0: сутки без действий — сеанс закрывается
 SESSIONS_FILE = os.path.join(DATA_DIR, "sessions.json")
 _SESS_LOCK = threading.Lock()
 _SESSIONS = {}  # v8.2.0: ключ — SHA-256 от токена (сам токен на диске не хранится)
 _PUBLIC_API = {"/api/version", "/api/update/check", "/api/auth/login", "/api/auth/setup",
-               "/api/auth/logout", "/api/auth/me"}
+               "/api/auth/logout", "/api/auth/me", "/api/auth/forgot", "/api/auth/reset"}
 # что можно водителю (метод, путь или префикс пути, заканчивающийся на «/»)
 _DRIVER_ALLOWED = [("GET", "/api/state"), ("POST", "/api/export/docx"), ("POST", "/api/export/xlsx"),
-                   ("GET", "/api/documents/download/"), ("GET", "/api/documents/text/"), ("GET", "/api/deadlines")]
+                   ("GET", "/api/documents/download/"), ("GET", "/api/documents/text/"), ("GET", "/api/deadlines"),
+                   ("POST", "/api/auth/change-password")]
 # v8.2.0: программа на одном компьютере (exe) слушает только 127.0.0.1 — тогда принимаем запросы
 # только с адресом 127.0.0.1/localhost (защита от «DNS rebinding»: чужой сайт не достучится до программы)
 LOCAL_ONLY = os.environ.get("PUTEVKA_LOCAL_ONLY") == "1"
@@ -574,9 +576,17 @@ def _session_user(request: Request):
     tok = request.cookies.get(SESSION_COOKIE)
     if not tok:
         return None
+    now = time.time()
     with _SESS_LOCK:
         s = _SESSIONS.get(_tok_key(tok))
-    if not s or s.get("exp", 0) < time.time():
+        if s and now - s.get("last", now) > SESSION_IDLE:
+            _SESSIONS.pop(_tok_key(tok), None)
+            _sessions_save()
+            s = None
+        elif s and now - s.get("last", 0) > 300:
+            s["last"] = now  # отметка активности (на диск — не чаще раза в 5 минут)
+            _sessions_save()
+    if not s or s.get("exp", 0) < now:
         return None
     u = next((x for x in _users_now() if x.get("id") == s.get("uid")), None)
     if not u or u.get("active") is False:
@@ -590,7 +600,7 @@ def _start_session(response, uid: str, secure: bool = False):
     with _SESS_LOCK:
         for k in [k for k, v in _SESSIONS.items() if v.get("exp", 0) < now]:
             _SESSIONS.pop(k, None)
-        _SESSIONS[_tok_key(tok)] = {"uid": uid, "exp": now + SESSION_TTL}
+        _SESSIONS[_tok_key(tok)] = {"uid": uid, "exp": now + SESSION_TTL, "last": now}
         _sessions_save()
     response.set_cookie(SESSION_COOKIE, tok, httponly=True, samesite="strict", path="/", secure=secure)
 
@@ -745,6 +755,9 @@ def save_state(request: Request, payload: dict = Body(...)):
         x.pop("hasPassword", None)
         newpw = str(x.pop("newPassword", "") or "").strip()
         if newpw:
+            prob = password_problem(newpw, x.get("login"))
+            if prob:
+                raise HTTPException(status_code=400, detail=f"Пароль пользователя «{x.get('login') or x.get('fullName') or ''}»: {prob}. База не перезаписана.")
             x["password"] = _make_password(newpw)
             changed_pw.append(x.get("id"))
         elif not x.get("password"):
@@ -758,6 +771,8 @@ def save_state(request: Request, payload: dict = Body(...)):
     save_valid_state(payload)
     me = getattr(request.state, "user", {}) or {}
     for uid in changed_pw:
+        _set_weak(uid, False)
+        _sec_log("password-set-by-admin", request, uid)
         if uid != me.get("id"):
             _drop_user_sessions(uid)  # сменили пароль — старые входы этого пользователя закрываются
     return {
@@ -774,6 +789,9 @@ def setup_admin(request: Request, payload: dict = Body(...)):
     full_name = str(payload.get("fullName") or "Главный Администратор").strip()
     if not login or not password:
         raise HTTPException(status_code=400, detail="Логин и пароль обязательны")
+    prob = password_problem(password, login)
+    if prob:
+        raise HTTPException(status_code=400, detail=prob)
 
     st = load_valid_state()
     users = st.get("users", []) or []
@@ -807,7 +825,10 @@ def setup_admin(request: Request, payload: dict = Body(...)):
     st["users"] = users
     st["adminSetupCompleted"] = True
     save_valid_state(st)
-    resp = JSONResponse({"status": "ok", "user": _public_user(admin_user)})
+    _set_weak(admin_user["id"], False)
+    code = _new_recovery_code(admin_user["id"])
+    _sec_log("admin-setup", request, login)
+    resp = JSONResponse({"status": "ok", "user": _public_user(admin_user), "recoveryCode": code})
     _start_session(resp, admin_user["id"], secure=request.url.scheme == "https")
     return resp
 
@@ -819,6 +840,10 @@ def login_user(request: Request, payload: dict = Body(...)):
         return JSONResponse({"status": "error", "message": "Слишком много неудачных попыток входа. Подождите 10 минут."}, status_code=429)
     login = str(payload.get("login") or "").strip()
     password = str(payload.get("password") or "").strip()
+    left = _acct_locked_left(login)
+    if left:
+        _sec_log("login-while-locked", request, login)
+        return JSONResponse({"status": "error", "message": _lock_message(left)}, status_code=429)
     st = load_valid_state()
     users = st.get("users", []) or []
     for u in users:
@@ -833,10 +858,16 @@ def login_user(request: Request, payload: dict = Body(...)):
             # пароль из прошлых версий (SHA-256 без соли или открытый текст) — переводим на новый формат
             u["password"] = _make_password(password)
             save_valid_state(st)
-        resp = JSONResponse({"status": "ok", "user": _public_user(u)})
+        weak = bool(password_problem(password, u.get("login")))
+        _set_weak(u.get("id"), weak)
+        _acct_ok(login)
+        _sec_log("login-ok", request, login)
+        resp = JSONResponse({"status": "ok", "user": _public_user(u), "mustChangePassword": weak})
         _start_session(resp, u.get("id"), secure=request.url.scheme == "https")
         return resp
     _login_failed(ip)
+    _acct_failed(login, request)
+    _sec_log("login-bad", request, login)
     time.sleep(0.4)  # притормаживаем подбор пароля
     return {"status": "error", "message": "Неверный логин или пароль"}
 
@@ -858,7 +889,9 @@ def auth_me(request: Request):
     u = _session_user(request)
     if not u:
         return JSONResponse({"status": "error", "message": "Требуется вход"}, status_code=401)
-    return {"status": "ok", "user": _public_user(u)}
+    sec = _sec_load()
+    return {"status": "ok", "user": _public_user(u), "mustChangePassword": bool((sec.get("weak") or {}).get(u.get("id"))),
+            "hasRecoveryCode": bool((sec.get("recovery") or {}).get(u.get("id"))), "mailReady": _smtp_ready()}
 
 
 def _doc_allowed(request: Request, stored_name: str) -> bool:
@@ -2493,16 +2526,20 @@ def _deadline_line(it):
 
 
 def _notify_check() -> dict:
+    """v8.3.0: каналы — Telegram и/или почта. Каждый канал помнит, что уже отправил (почта — с приставкой «mail:»)."""
     with _NOTIFY_LOCK:
         cfg = _notify_load()
         tg = cfg.get("telegram") or {}
-        if not tg.get("enabled") or not tg.get("token") or not tg.get("chats"):
+        tg_on = bool(tg.get("enabled") and tg.get("token") and tg.get("chats"))
+        mc = _smtp_load()
+        mail_on = bool(mc.get("notifyEnabled") and mc.get("notifyTo") and _smtp_ready(mc))
+        if not tg_on and not mail_on:
             return {"sent": 0, "reason": "уведомления выключены или не настроены"}
         st = load_valid_state()
         today = datetime.date.today()
         days = sorted({int(x) for x in (cfg.get("days") or NOTIFY_DEFAULT_DAYS) if str(x).lstrip("-").isdigit()}, reverse=True)
         sent = cfg.setdefault("sent", {})
-        lines, marks = [], []
+        items = []  # (вид, ключ, строка)
         for it in collect_deadlines(st, today):
             dl = it["daysLeft"]
             if dl < 0:
@@ -2512,15 +2549,10 @@ def _notify_check() -> dict:
                 if not ths:
                     continue
                 mark = str(min(ths))
-            k = it["key"] + "|" + mark
-            if k not in sent:
-                lines.append(_deadline_line(it))
-                marks.append(k)
+            items.append(("deadline", it["key"] + "|" + mark, _deadline_line(it)))
         byid = {p.get("id"): p for p in st.get("profiles") or []}
-        new_fines = []
         for f in st.get("fines") or []:
-            k = f"fine-new:{f.get('id')}"
-            if f.get("status") in ("paid", "cancelled") or not f.get("id") or k in sent:
+            if f.get("status") in ("paid", "cancelled") or not f.get("id"):
                 continue
             p = byid.get(f.get("profileId"))
             parts = [f.get("plate") or (p or {}).get("carPlate", ""), f"{('%g' % f['amount']) if f.get('amount') else '?'} ₽",
@@ -2528,33 +2560,47 @@ def _notify_check() -> dict:
                      f"ст. {f['article']}" if f.get("article") else "",
                      f"водитель: {(p or {}).get('driverShort') or (p or {}).get('driverFull')}" if p else "водитель не определён",
                      f"скидка до {_fmt_ru(f['discountUntil'])}" if f.get("discountUntil") else ""]
-            new_fines.append("• " + "; ".join(x for x in parts if x))
-            marks.append(k)
-        if not lines and not new_fines:
-            cfg["lastRun"] = datetime.datetime.now().isoformat(timespec="seconds")
-            _notify_save(cfg)
-            return {"sent": 0}
-        text = ""
-        if new_fines:
-            text += "🚨 Новые штрафы (ПУТЁВКА):\n" + "\n".join(new_fines) + "\n\n"
-        if lines:
-            text += "⏰ Сроки документов (ПУТЁВКА):\n" + "\n".join(lines)
-        ok_all, errs = True, []
-        for chat in tg.get("chats") or []:
-            ok, err = _tg_send(tg["token"], str(chat), text.strip())
-            if not ok:
-                ok_all = False
-                errs.append(err)
+            items.append(("fine", f"fine-new:{f.get('id')}", "• " + "; ".join(x for x in parts if x)))
+
+        def build(sel):
+            fines = [x[2] for x in sel if x[0] == "fine"]
+            dls = [x[2] for x in sel if x[0] == "deadline"]
+            text = ""
+            if fines:
+                text += "🚨 Новые штрафы (ПУТЁВКА):\n" + "\n".join(fines) + "\n\n"
+            if dls:
+                text += "⏰ Сроки документов (ПУТЁВКА):\n" + "\n".join(dls)
+            return text.strip()
+
+        total, errs = 0, []
+        for ch in (["tg"] if tg_on else []) + (["mail"] if mail_on else []):
+            pref = "" if ch == "tg" else "mail:"
+            pend = [x for x in items if pref + x[1] not in sent]
+            if not pend:
+                continue
+            text = build(pend)
+            ok_all = True
+            if ch == "tg":
+                for chat in tg.get("chats") or []:
+                    ok, err = _tg_send(tg["token"], str(chat), text)
+                    if not ok:
+                        ok_all = False
+                        errs.append("Telegram: " + err)
+            else:
+                ok, err = _mail_send(mc.get("notifyTo") or [], "ПУТЁВКА: сроки документов и штрафы", text, mc)
+                if not ok:
+                    ok_all = False
+                    errs.append("почта: " + err)
+            if ok_all:
+                for x in pend:
+                    sent[pref + x[1]] = today.isoformat()
+                total += len(pend)
         cfg["lastRun"] = datetime.datetime.now().isoformat(timespec="seconds")
         cfg["lastError"] = "; ".join(sorted(set(errs)))
-        if ok_all:
-            for k in marks:
-                sent[k] = today.isoformat()
-        # старые отметки чистим
         cutoff = (today - datetime.timedelta(days=400)).isoformat()
         cfg["sent"] = {k: v for k, v in sent.items() if v >= cutoff}
         _notify_save(cfg)
-        return {"sent": len(marks) if ok_all else 0, "error": cfg["lastError"]}
+        return {"sent": total, "error": cfg["lastError"]}
 
 
 def _notify_loop():
@@ -2623,6 +2669,665 @@ def notify_test():
 @app.post("/api/notify/run")
 def notify_run():
     return {"status": "ok", **_notify_check()}
+
+
+# =====================================================================================
+# v8.3.0 — НАДЁЖНЫЙ ВХОД, ВОССТАНОВЛЕНИЕ ПАРОЛЯ, ПОЧТА, РЕЗЕРВНАЯ КОПИЯ БАЗЫ
+#  • пароль не короче 8 символов, не совпадает с логином, не из распространённых;
+#  • подбор: 10 ошибок с адреса за 10 мин (было) + 5 ошибок на логин → вход этим логином закрыт на 15 мин;
+#  • сеанс закрывается после 24 ч бездействия (и через 7 дней в любом случае);
+#  • код восстановления администратора (выдаётся при первичной настройке, меняется в «Настройках»);
+#  • сброс пароля кодом из письма — почта своего ящика (SMTP: Яндекс, Mail.ru, Gmail и др.);
+#  • та же почта — для напоминаний о сроках и штрафах (вместе с Telegram или вместо него);
+#  • выгрузка всей базы одним файлом, загрузка на другом компьютере, чистая база; ежедневная копия.
+# Секреты (хэши кодов, пароль почты) — в отдельных файлах data/, браузер их не получает.
+# =====================================================================================
+import smtplib, ssl, tempfile
+from email.message import EmailMessage
+from email.utils import formataddr, formatdate, make_msgid
+from starlette.background import BackgroundTask
+
+SECURITY_FILE = os.path.join(DATA_DIR, "security.json")
+SECURITY_LOG = os.path.join(DATA_DIR, "security.log")
+SMTP_FILE = os.path.join(DATA_DIR, "smtp.json")
+BACKUP_DIR = os.path.join(DATA_DIR, "backups")
+_SEC_LOCK = threading.Lock()
+_BACKUP_LOCK = threading.Lock()
+PW_MIN = 8
+ACCT_MAX_FAILS, ACCT_WINDOW, ACCT_LOCK_SEC = 5, 900, 900
+_ACCT_FAILS = {}
+_ACCT_LOCK_UNTIL = {}
+_COMMON_PW = {
+    "password", "password1", "passw0rd", "qwerty123", "qwertyui", "qwerty12", "1q2w3e4r", "1qaz2wsx", "zaq12wsx",
+    "iloveyou", "admin123", "administrator", "welcome1", "letmein1", "11111111", "12345678", "123456789",
+    "1234567890", "87654321", "00000000", "abc12345", "abcd1234", "12341234", "11223344", "qazwsxedc",
+    "пароль123", "йцукенгш", "putevka1", "путевка1", "путёвка1", "admin1234", "user1234", "driver12",
+}
+_SEQ_ROWS = ["01234567890", "abcdefghijklmnopqrstuvwxyz", "qwertyuiopasdfghjklzxcvbnm",
+             "абвгдеёжзийклмнопрстуфхцчшщъыьэюя", "йцукенгшщзхъфывапролджэячсмитьбю"]
+_RC_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
+def password_problem(pw, login: str = "") -> str:
+    """Почему пароль не годится («» — годится). Одни правила для всех способов задать пароль."""
+    pw = str(pw or "")
+    if len(pw) < PW_MIN:
+        return f"Пароль должен быть не короче {PW_MIN} символов"
+    low = pw.lower()
+    if login and low == str(login).strip().lower():
+        return "Пароль не должен совпадать с логином"
+    if len(set(low)) <= 2:
+        return "Пароль слишком простой: почти одни и те же символы"
+    if low in _COMMON_PW or any(low in row or low in row[::-1] for row in _SEQ_ROWS):
+        return "Пароль слишком простой: распространённый или символы подряд с клавиатуры"
+    return ""
+
+
+def _sec_load() -> dict:
+    try:
+        with open(SECURITY_FILE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _sec_save(d: dict):
+    tmp = SECURITY_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+    try:
+        os.chmod(tmp, 0o600)
+    except Exception:
+        pass
+    os.replace(tmp, SECURITY_FILE)
+
+
+def _sec_log(event: str, request: Request = None, login: str = ""):
+    """Журнал безопасности data/security.log: входы, блокировки, смены паролей, загрузка базы."""
+    try:
+        ip = (request.client.host if request is not None and request.client else "-")
+        line = f"{datetime.datetime.now().isoformat(timespec='seconds')}\t{ip}\t{event}\t{str(login)[:64]}\n"
+        if os.path.exists(SECURITY_LOG) and os.path.getsize(SECURITY_LOG) > 1_000_000:
+            os.replace(SECURITY_LOG, SECURITY_LOG + ".1")
+        with open(SECURITY_LOG, "a", encoding="utf-8") as f:
+            f.write(line)
+    except Exception:
+        pass
+
+
+def _acct_key(login: str) -> str:
+    return str(login or "").strip().lower()[:64]
+
+
+def _acct_locked_left(login: str) -> int:
+    left = _ACCT_LOCK_UNTIL.get(_acct_key(login), 0) - time.time()
+    return int(left) if left > 0 else 0
+
+
+def _acct_failed(login: str, request: Request = None):
+    k, now = _acct_key(login), time.time()
+    if not k:
+        return
+    with _LOGIN_LOCK:
+        lst = [t for t in _ACCT_FAILS.get(k, []) if now - t < ACCT_WINDOW] + [now]
+        _ACCT_FAILS[k] = lst
+        if len(lst) >= ACCT_MAX_FAILS:
+            _ACCT_LOCK_UNTIL[k] = now + ACCT_LOCK_SEC
+            _ACCT_FAILS[k] = []
+            _sec_log("login-locked", request, login)
+
+
+def _acct_ok(login: str):
+    k = _acct_key(login)
+    with _LOGIN_LOCK:
+        _ACCT_FAILS.pop(k, None)
+        _ACCT_LOCK_UNTIL.pop(k, None)
+
+
+def _lock_message(left: int) -> str:
+    return f"Вход этим логином временно закрыт из-за неверных паролей. Попробуйте через {max(1, (left + 59) // 60)} мин."
+
+
+def _norm_code(code: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]", "", str(code or "")).upper()
+
+
+def _new_recovery_code(uid: str) -> str:
+    raw = "".join(secrets.choice(_RC_ALPHABET) for _ in range(16))
+    code = "-".join(raw[i:i + 4] for i in range(0, 16, 4))
+    with _SEC_LOCK:
+        d = _sec_load()
+        d.setdefault("recovery", {})[uid] = _make_password(raw)
+        _sec_save(d)
+    return code
+
+
+def _set_weak(uid: str, weak: bool):
+    with _SEC_LOCK:
+        d = _sec_load()
+        w = d.setdefault("weak", {})
+        if weak:
+            w[uid] = True
+        else:
+            w.pop(uid, None)
+        _sec_save(d)
+
+
+def _set_user_password(uid: str, new_pw: str) -> dict:
+    st = load_valid_state()
+    u = next((x for x in st.get("users", []) or [] if x.get("id") == uid), None)
+    if not u:
+        raise HTTPException(status_code=404, detail="Пользователь не найден")
+    u["password"] = _make_password(new_pw)
+    save_valid_state(st)
+    _set_weak(uid, False)
+    _drop_user_sessions(uid)
+    return u
+
+
+def _find_user_by_login(login: str):
+    lk = _acct_key(login)
+    return next((x for x in (load_valid_state().get("users", []) or []) if _acct_key(x.get("login")) == lk and lk), None)
+
+
+# ---------- почта своего ящика (SMTP) ----------
+SMTP_PRESETS = {"yandex": ("smtp.yandex.ru", 465, "ssl"), "mailru": ("smtp.mail.ru", 465, "ssl"),
+                "gmail": ("smtp.gmail.com", 587, "starttls")}
+
+
+def _smtp_load() -> dict:
+    try:
+        with open(SMTP_FILE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def _smtp_save(d: dict):
+    tmp = SMTP_FILE + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, indent=1)
+    try:
+        os.chmod(tmp, 0o600)
+    except Exception:
+        pass
+    os.replace(tmp, SMTP_FILE)
+
+
+def _smtp_ready(cfg: dict = None) -> bool:
+    cfg = cfg if cfg is not None else _smtp_load()
+    return bool(cfg.get("host") and (cfg.get("fromAddr") or cfg.get("user")))
+
+
+_EMAIL_RE = re.compile(r"^[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>]+$")
+
+
+def _mail_send(to, subject: str, text: str, cfg: dict = None):
+    """(успех, ошибка). Письмо простым текстом через почтовый сервер своего ящика."""
+    cfg = cfg if cfg is not None else _smtp_load()
+    to = [t for t in ([to] if isinstance(to, str) else list(to or [])) if _EMAIL_RE.match(str(t))]
+    if not _smtp_ready(cfg):
+        return False, "почта для отправки не настроена (Настройки приложения → Почта)"
+    if not to:
+        return False, "не указан адрес получателя"
+    sender = cfg.get("fromAddr") or cfg.get("user")
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = formataddr((cfg.get("fromName") or "ПУТЁВКА", sender))
+    msg["To"] = ", ".join(to)
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=(sender.split("@")[-1] if "@" in sender else "putevka.local"))
+    msg.set_content(text)
+    sec = cfg.get("security") or "ssl"
+    port = int(cfg.get("port") or (465 if sec == "ssl" else 587))
+    try:
+        ctx = ssl.create_default_context()
+        if sec == "ssl":
+            srv = smtplib.SMTP_SSL(cfg["host"], port, timeout=25, context=ctx)
+        else:
+            srv = smtplib.SMTP(cfg["host"], port, timeout=25)
+            srv.ehlo()
+            if sec == "starttls":
+                srv.starttls(context=ctx)
+                srv.ehlo()
+        try:
+            if cfg.get("user"):
+                srv.login(cfg["user"], cfg.get("password") or "")
+            srv.send_message(msg)
+        finally:
+            try:
+                srv.quit()
+            except Exception:
+                pass
+        return True, ""
+    except smtplib.SMTPAuthenticationError:
+        return False, "почтовый сервер не принял логин или пароль (для Яндекса, Mail.ru и Gmail нужен «пароль приложения», не обычный пароль)"
+    except Exception as e:
+        return False, f"{type(e).__name__}: {e}"[:300]
+
+
+@app.get("/api/mail/settings")
+def mail_settings_get():
+    c = _smtp_load()
+    pw = c.get("password") or ""
+    return {"status": "ok", "host": c.get("host", ""), "port": c.get("port") or "", "security": c.get("security") or "ssl",
+            "user": c.get("user", ""), "fromName": c.get("fromName", ""), "fromAddr": c.get("fromAddr", ""),
+            "hasPassword": bool(pw), "notifyEnabled": bool(c.get("notifyEnabled")), "notifyTo": c.get("notifyTo") or [],
+            "ready": _smtp_ready(c), "lastError": c.get("lastError", "")}
+
+
+@app.post("/api/mail/settings")
+def mail_settings_set(payload: dict = Body(...)):
+    with _SEC_LOCK:
+        c = _smtp_load()
+        preset = str(payload.get("preset") or "")
+        if preset in SMTP_PRESETS:
+            c["host"], c["port"], c["security"] = SMTP_PRESETS[preset]
+        if "host" in payload:
+            host = str(payload.get("host") or "").strip()
+            if host and not re.fullmatch(r"[A-Za-z0-9.\-]{1,253}", host):
+                raise HTTPException(status_code=400, detail="Адрес почтового сервера — вида smtp.yandex.ru")
+            c["host"] = host
+        if "port" in payload and str(payload.get("port") or "").strip():
+            try:
+                port = int(payload.get("port"))
+                assert 1 <= port <= 65535
+            except Exception:
+                raise HTTPException(status_code=400, detail="Порт — число, обычно 465 или 587")
+            c["port"] = port
+        if "security" in payload:
+            sec = str(payload.get("security") or "ssl")
+            if sec not in ("ssl", "starttls", "none"):
+                raise HTTPException(status_code=400, detail="Шифрование: ssl, starttls или none")
+            c["security"] = sec
+        for k in ("user", "fromName", "fromAddr"):
+            if k in payload:
+                c[k] = str(payload.get(k) or "").strip()[:200]
+        if c.get("fromAddr") and not _EMAIL_RE.match(c["fromAddr"]):
+            raise HTTPException(status_code=400, detail="Адрес отправителя — вида name@yandex.ru")
+        if payload.get("clearPassword"):
+            c["password"] = ""
+        elif str(payload.get("password") or ""):
+            c["password"] = str(payload.get("password"))[:200]
+        if "notifyTo" in payload:
+            lst = [str(x).strip() for x in (payload.get("notifyTo") or []) if str(x).strip()]
+            bad = [x for x in lst if not _EMAIL_RE.match(x)]
+            if bad:
+                raise HTTPException(status_code=400, detail="Неверный адрес почты: " + ", ".join(bad[:3]))
+            c["notifyTo"] = lst[:10]
+        if "notifyEnabled" in payload:
+            c["notifyEnabled"] = bool(payload.get("notifyEnabled"))
+        _smtp_save(c)
+    return mail_settings_get()
+
+
+@app.post("/api/mail/test")
+def mail_test(request: Request, payload: dict = Body(default={})):
+    to = str((payload or {}).get("to") or "").strip()
+    if not to:
+        c = _smtp_load()
+        to = (c.get("notifyTo") or [""])[0] or c.get("fromAddr") or c.get("user") or ""
+    ok, err = _mail_send(to, "ПУТЁВКА: проверка почты",
+                         "Это проверочное письмо программы «Путёвка».\n\nСюда будут приходить коды для сброса пароля и, если "
+                         "включено, напоминания о сроках документов и о новых штрафах.\n")
+    with _SEC_LOCK:
+        c = _smtp_load()
+        c["lastError"] = err
+        _smtp_save(c)
+    return {"status": "ok" if ok else "error", "to": to, "message": err or f"Письмо отправлено на {to}"}
+
+
+# ---------- вход: смена пароля, код восстановления, сброс ----------
+@app.post("/api/auth/change-password")
+def auth_change_password(request: Request, payload: dict = Body(...)):
+    u = request.state.user
+    cur = str(payload.get("current") or "")
+    new = str(payload.get("new") or "")
+    ok, _ = _check_password(u.get("password") or "", cur)
+    if not ok:
+        _acct_failed(u.get("login"), request)
+        _sec_log("password-change-bad-current", request, u.get("login"))
+        raise HTTPException(status_code=403, detail="Текущий пароль указан неверно")
+    prob = password_problem(new, u.get("login"))
+    if prob:
+        raise HTTPException(status_code=400, detail=prob)
+    if new == cur:
+        raise HTTPException(status_code=400, detail="Новый пароль совпадает с текущим")
+    _set_user_password(u["id"], new)
+    _sec_log("password-changed", request, u.get("login"))
+    resp = JSONResponse({"status": "ok", "message": "Пароль изменён"})
+    _start_session(resp, u["id"], secure=request.url.scheme == "https")
+    return resp
+
+
+@app.post("/api/auth/recovery-code")
+def auth_recovery_code(request: Request, payload: dict = Body(...)):
+    u = request.state.user
+    ok, _ = _check_password(u.get("password") or "", str(payload.get("password") or ""))
+    if not ok:
+        _acct_failed(u.get("login"), request)
+        raise HTTPException(status_code=403, detail="Пароль указан неверно")
+    code = _new_recovery_code(u["id"])
+    _sec_log("recovery-code-new", request, u.get("login"))
+    return {"status": "ok", "recoveryCode": code}
+
+
+_GENERIC_FORGOT = ("Если у этого логина указана почта и в программе настроена отправка писем, код уже отправлен — он "
+                   "действует 15 минут. Письма нет — введите код восстановления администратора или попросите "
+                   "администратора задать новый пароль (раздел «Пользователи и доступ»).")
+
+
+@app.post("/api/auth/forgot")
+def auth_forgot(request: Request, payload: dict = Body(...)):
+    ip = request.client.host if request.client else "?"
+    if _login_blocked(ip):
+        return JSONResponse({"status": "error", "message": "Слишком много попыток. Подождите 10 минут."}, status_code=429)
+    login = str(payload.get("login") or "").strip()
+    _login_failed(ip)  # каждый запрос кода считается попыткой: рассылку кодов не превратить в спам
+    u = _find_user_by_login(login)
+    cfg = _smtp_load()
+    sent = False
+    if u and u.get("active") is not False and _EMAIL_RE.match(str(u.get("email") or "")) and _smtp_ready(cfg):
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        with _SEC_LOCK:
+            d = _sec_load()
+            d.setdefault("resets", {})[u["id"]] = {"hash": _make_password(code), "exp": time.time() + 900, "tries": 0}
+            _sec_save(d)
+        sent, err = _mail_send(u["email"], "ПУТЁВКА: код для сброса пароля",
+                               f"Код для сброса пароля в программе «Путёвка»: {code}\n\nЛогин: {u.get('login')}\n"
+                               "Код действует 15 минут. Если вы не просили сбросить пароль — просто удалите это письмо: "
+                               "без кода пароль не изменится.\n", cfg)
+        _sec_log("reset-code-sent" if sent else "reset-code-mail-error", request, login)
+    else:
+        _sec_log("reset-code-not-sent", request, login)
+    return {"status": "ok", "message": _GENERIC_FORGOT, "mailReady": _smtp_ready(cfg)}
+
+
+@app.post("/api/auth/reset")
+def auth_reset(request: Request, payload: dict = Body(...)):
+    ip = request.client.host if request.client else "?"
+    login = str(payload.get("login") or "").strip()
+    if _login_blocked(ip):
+        return JSONResponse({"status": "error", "message": "Слишком много неудачных попыток. Подождите 10 минут."}, status_code=429)
+    left = _acct_locked_left(login)
+    if left:
+        return JSONResponse({"status": "error", "message": _lock_message(left)}, status_code=429)
+    code = _norm_code(payload.get("code"))
+    new = str(payload.get("newPassword") or "")
+    u = _find_user_by_login(login)
+    used = ""
+    if u and code:
+        with _SEC_LOCK:
+            d = _sec_load()
+            r = (d.get("resets") or {}).get(u["id"])
+            if r and r.get("exp", 0) > time.time() and r.get("tries", 0) < 5:
+                if _check_password(r.get("hash") or "", code)[0]:
+                    used = "email"
+                else:
+                    r["tries"] = r.get("tries", 0) + 1
+                    _sec_save(d)
+            if not used and _check_password((d.get("recovery") or {}).get(u["id"]) or "", code)[0]:
+                used = "recovery"
+    if not used:
+        _login_failed(ip)
+        _acct_failed(login, request)
+        _sec_log("reset-bad-code", request, login)
+        time.sleep(0.4)
+        return JSONResponse({"status": "error", "message": "Код неверный или устарел"}, status_code=400)
+    prob = password_problem(new, u.get("login"))
+    if prob:
+        return JSONResponse({"status": "error", "message": prob}, status_code=400)
+    if u.get("active") is False:
+        return JSONResponse({"status": "error", "message": "Учётная запись отключена администратором"}, status_code=403)
+    _set_user_password(u["id"], new)
+    with _SEC_LOCK:
+        d = _sec_load()
+        (d.get("resets") or {}).pop(u["id"], None)
+        if used == "recovery":
+            (d.get("recovery") or {}).pop(u["id"], None)
+        _sec_save(d)
+    out = {"status": "ok", "message": "Пароль изменён — войдите с новым паролем"}
+    if used == "recovery":
+        out["recoveryCode"] = _new_recovery_code(u["id"])  # старый код одноразовый — сразу выдаём новый
+    _acct_ok(login)
+    _sec_log("password-reset-" + used, request, login)
+    return out
+
+
+# ---------- резервная копия базы ----------
+_BK_NAME = re.compile(r"^putevka_backup_[0-9A-Za-z_\-]+\.zip$")
+
+
+def _backup_make(reason: str, dest_dir: str = None, with_documents: bool = True) -> str:
+    dest_dir = dest_dir or BACKUP_DIR
+    os.makedirs(dest_dir, exist_ok=True)
+    ts = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    path = os.path.join(dest_dir, f"putevka_backup_{ts}_{reason}.zip")
+    tmp = path + ".part"
+    st = load_valid_state()
+    docs = []
+    if with_documents and os.path.isdir(DOCS_DIR):
+        for root, _dirs, files in os.walk(DOCS_DIR):
+            for fn in files:
+                full = os.path.join(root, fn)
+                docs.append((full, "documents/" + os.path.relpath(full, DOCS_DIR).replace(os.sep, "/")))
+    manifest = {"app": "putevka", "appVersion": APP_VERSION, "created": datetime.datetime.now().isoformat(timespec="seconds"),
+                "reason": reason, "profiles": len(st.get("profiles") or []), "users": len(st.get("users") or []),
+                "documents": len(docs), "withDocuments": with_documents}
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=1))
+        if os.path.exists(DB_FILE):
+            zf.write(DB_FILE, "putevka_db.json")
+        if os.path.exists(SECURITY_FILE):
+            zf.write(SECURITY_FILE, "security.json")
+        for full, arc in docs:
+            zf.write(full, arc)
+    os.replace(tmp, path)
+    if dest_dir == BACKUP_DIR:
+        _backup_prune()
+    return path
+
+
+def _backup_prune():
+    try:
+        files = sorted((f for f in os.listdir(BACKUP_DIR) if _BK_NAME.match(f)), reverse=True)
+        auto = [f for f in files if f.endswith("_auto.zip")]
+        other = [f for f in files if not f.endswith("_auto.zip")]
+        for f in auto[14:] + other[5:]:
+            os.remove(os.path.join(BACKUP_DIR, f))
+    except Exception:
+        pass
+
+
+def _confirm_admin_password(request: Request, pw: str):
+    u = request.state.user
+    left = _acct_locked_left(u.get("login"))
+    if left:
+        raise HTTPException(status_code=429, detail=_lock_message(left))
+    ok, _ = _check_password(u.get("password") or "", pw or "")
+    if not ok:
+        _acct_failed(u.get("login"), request)
+        raise HTTPException(status_code=403, detail="Пароль указан неверно")
+
+
+@app.get("/api/backup/export")
+def backup_export(request: Request):
+    tmpdir = tempfile.mkdtemp(prefix="putevka_export_")
+    with _BACKUP_LOCK:
+        path = _backup_make("export", dest_dir=tmpdir)
+    _sec_log("backup-export", request, request.state.user.get("login"))
+    name = "Путёвка_база_" + datetime.datetime.now().strftime("%Y-%m-%d_%H%M") + ".zip"
+    return FileResponse(path, media_type="application/zip", filename=name,
+                        background=BackgroundTask(shutil.rmtree, tmpdir, True))
+
+
+def _safe_member(name: str) -> bool:
+    if not name or name.startswith(("/", "\\")) or ":" in name or "\\" in name:
+        return False
+    parts = name.split("/")
+    return ".." not in parts and all(p not in ("", ".") for p in parts[:-1])
+
+
+@app.post("/api/backup/import")
+async def backup_import(request: Request):
+    try:
+        pw = base64.b64decode(request.headers.get("x-confirm-password-b64") or "").decode("utf-8")
+    except Exception:
+        pw = ""
+    _confirm_admin_password(request, pw)
+    fd, tmp = tempfile.mkstemp(prefix="putevka_import_", suffix=".zip")
+    size = 0
+    try:
+        with os.fdopen(fd, "wb") as f:
+            async for chunk in request.stream():
+                size += len(chunk)
+                if size > 4 * 1024 ** 3:
+                    raise HTTPException(status_code=413, detail="Файл больше 4 ГБ")
+                f.write(chunk)
+        try:
+            zf = zipfile.ZipFile(tmp)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Это не файл резервной копии (.zip программы «Путёвка»)")
+        with zf:
+            infos = zf.infolist()
+            names = {i.filename for i in infos}
+            if "putevka_db.json" not in names:
+                raise HTTPException(status_code=400, detail="В файле нет базы (putevka_db.json) — это не резервная копия «Путёвки»")
+            if len(infos) > 100_000 or sum(i.file_size for i in infos) > 8 * 1024 ** 3:
+                raise HTTPException(status_code=400, detail="Файл слишком большой или повреждён")
+            for i in infos:
+                if i.is_dir():
+                    continue
+                if not _safe_member(i.filename) or not (i.filename in ("manifest.json", "putevka_db.json", "security.json")
+                                                         or i.filename.startswith("documents/")):
+                    raise HTTPException(status_code=400, detail=f"Недопустимый файл в архиве: {i.filename[:80]}")
+            try:
+                st = json.loads(zf.read("putevka_db.json").decode("utf-8"))
+            except Exception:
+                raise HTTPException(status_code=400, detail="База в файле повреждена (не читается)")
+            if not isinstance(st, dict) or not isinstance(st.get("profiles"), list) or not isinstance(st.get("users", []), list):
+                raise HTTPException(status_code=400, detail="База в файле не похожа на базу «Путёвки»")
+            if not any(x.get("role") == "admin" and x.get("password") and x.get("active") is not False
+                       for x in st.get("users") or [] if isinstance(x, dict)):
+                raise HTTPException(status_code=400, detail="В загружаемой базе нет администратора с паролем — войти в неё будет нельзя")
+            with _BACKUP_LOCK:
+                before = _backup_make("before-import")
+                new_docs = DOCS_DIR + ".import"
+                shutil.rmtree(new_docs, ignore_errors=True)
+                os.makedirs(new_docs, exist_ok=True)
+                for i in infos:
+                    if i.is_dir() or not i.filename.startswith("documents/"):
+                        continue
+                    dest = os.path.join(new_docs, *i.filename[len("documents/"):].split("/"))
+                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                    with zf.open(i) as src, open(dest, "wb") as out:
+                        shutil.copyfileobj(src, out)
+                with open(DB_FILE + ".import", "w", encoding="utf-8") as f:
+                    json.dump(st, f, ensure_ascii=False, indent=2)
+                os.replace(DB_FILE + ".import", DB_FILE)
+                if "security.json" in names:
+                    with open(SECURITY_FILE + ".import", "wb") as f:
+                        f.write(zf.read("security.json"))
+                    os.replace(SECURITY_FILE + ".import", SECURITY_FILE)
+                elif os.path.exists(SECURITY_FILE):
+                    os.remove(SECURITY_FILE)
+                old_docs = DOCS_DIR + ".old"
+                shutil.rmtree(old_docs, ignore_errors=True)
+                if os.path.isdir(DOCS_DIR):
+                    os.replace(DOCS_DIR, old_docs)
+                os.replace(new_docs, DOCS_DIR)
+                shutil.rmtree(old_docs, ignore_errors=True)
+                with _SESS_LOCK:
+                    _SESSIONS.clear()
+                    _sessions_save()
+                _USERS_CACHE["mtime"] = -1.0
+        _sec_log("backup-import", request, request.state.user.get("login"))
+        return {"status": "ok", "backupBefore": os.path.basename(before), "profiles": len(st.get("profiles") or []),
+                "users": len(st.get("users") or []),
+                "message": "База загружена. Войдите логином и паролем из загруженной базы."}
+    finally:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+
+
+@app.post("/api/backup/reset")
+def backup_reset(request: Request, payload: dict = Body(...)):
+    _confirm_admin_password(request, str(payload.get("password") or ""))
+    if str(payload.get("confirm") or "").strip().upper() not in ("ОЧИСТИТЬ", "ОЧИСТИТЬ БАЗУ"):
+        raise HTTPException(status_code=400, detail="Для подтверждения введите слово ОЧИСТИТЬ")
+    with _BACKUP_LOCK:
+        before = _backup_make("before-reset")
+        tpl = INIT_FILE if os.path.exists(INIT_FILE) else os.path.join(BUNDLE_DIR, "data", "app_data.json")
+        with open(tpl, "r", encoding="utf-8") as f:
+            st = json.load(f)
+        st["users"] = []
+        st["profiles"] = []
+        st["savedDocuments"] = []
+        st["savedFolders"] = []
+        st["fines"] = []
+        st["adminSetupCompleted"] = False
+        with open(DB_FILE + ".reset", "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False, indent=2)
+        os.replace(DB_FILE + ".reset", DB_FILE)
+        shutil.rmtree(DOCS_DIR, ignore_errors=True)
+        os.makedirs(DOCS_DIR, exist_ok=True)
+        if os.path.exists(SECURITY_FILE):
+            os.remove(SECURITY_FILE)
+        with _SESS_LOCK:
+            _SESSIONS.clear()
+            _sessions_save()
+        _USERS_CACHE["mtime"] = -1.0
+    _sec_log("backup-reset", request, request.state.user.get("login"))
+    return {"status": "ok", "backupBefore": os.path.basename(before),
+            "message": "База очищена. Создайте администратора заново. Прежняя база сохранена в резервных копиях."}
+
+
+@app.get("/api/backup/list")
+def backup_list():
+    out = []
+    try:
+        for f in sorted((x for x in os.listdir(BACKUP_DIR) if _BK_NAME.match(x)), reverse=True):
+            p = os.path.join(BACKUP_DIR, f)
+            m = re.match(r"^putevka_backup_(\d{4}-\d{2}-\d{2})_(\d{2})(\d{2})(\d{2})_(.+)\.zip$", f)
+            out.append({"name": f, "size": os.path.getsize(p), "reason": m.group(5) if m else "",
+                        "created": (f"{m.group(1)} {m.group(2)}:{m.group(3)}" if m else "")})
+    except FileNotFoundError:
+        pass
+    return {"status": "ok", "items": out}
+
+
+@app.get("/api/backup/file/{name}")
+def backup_file(name: str):
+    if not _BK_NAME.match(name or "") or not os.path.exists(os.path.join(BACKUP_DIR, name)):
+        raise HTTPException(status_code=404, detail="Нет такой копии")
+    return FileResponse(os.path.join(BACKUP_DIR, name), media_type="application/zip", filename=name)
+
+
+def _backup_daily_loop():
+    """Раз в сутки — копия базы без документов (на случай поломки), хранятся 14 последних."""
+    time.sleep(120)
+    while True:
+        try:
+            today = datetime.date.today().isoformat()
+            have = any(f.startswith("putevka_backup_" + today) and f.endswith("_auto.zip")
+                       for f in (os.listdir(BACKUP_DIR) if os.path.isdir(BACKUP_DIR) else []))
+            st = load_valid_state()
+            if not have and (st.get("users") or st.get("profiles")):
+                with _BACKUP_LOCK:
+                    _backup_make("auto", with_documents=False)
+        except Exception:
+            pass
+        time.sleep(3600)
+
+
+@app.on_event("startup")
+def _start_backup_thread():
+    threading.Thread(target=_backup_daily_loop, daemon=True).start()
+
 
 
 # v8.1.2: запуск — СТРОГО в самом конце файла. Раньше этот блок стоял посередине, и при

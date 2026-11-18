@@ -88,7 +88,6 @@ _relaunch_clean_if_foreign_bundle()
 INSTALL_DIR = os.path.join(_appdata, "Programs", "Putevka")
 INSTALL_EXE = os.path.join(INSTALL_DIR, "Putevka.exe")
 INSTALL_MARK = os.path.join(INSTALL_DIR, "installed_exe_version.txt")
-DATA_DIR_NOTE = os.path.join(_log_dir, "data_dir.txt")
 _NOWIN = 0x08000000  # CREATE_NO_WINDOW
 
 
@@ -222,58 +221,54 @@ def _db_has_content(db_path):
         return False
 
 
-def _find_data_dirs(roots, limit_sec=8.0):
-    found, t0 = [], time.time()
-    skip = {"appdata", "node_modules", "$recycle.bin", "windows", "program files", "program files (x86)"}
-    for root in roots:
-        if not root or not os.path.isdir(root):
-            continue
-        base_depth = root.rstrip("\\/").count(os.sep)
-        for dirpath, dirnames, files in os.walk(root):
-            if time.time() - t0 > limit_sec:
-                return found
-            if os.path.basename(dirpath).lower() == "data" and "putevka_db.json" in files:
-                found.append(dirpath)
-            if dirpath.count(os.sep) - base_depth >= 3:
-                dirnames[:] = []
-            else:
-                dirnames[:] = [d for d in dirnames if not d.startswith(".") and d.lower() not in skip]
-    return found
+def _db_summary(data_dir):
+    db = os.path.join(data_dir, "putevka_db.json")
+    try:
+        with open(db, encoding="utf-8") as f:
+            d = json.load(f)
+        return {"profiles": len(d.get("profiles") or []), "users": len(d.get("users") or []),
+                "docs": len(d.get("savedDocuments") or []),
+                "when": time.strftime("%d.%m.%Y %H:%M", time.localtime(os.path.getmtime(db)))}
+    except Exception:
+        return {"profiles": 0, "users": 0, "docs": 0, "when": "?"}
 
 
 def _pick_data_source(running):
-    """Где лежит рабочая база: у работающей версии, рядом с этим exe, в запомненном месте
-    или в обычных папках (Рабочий стол, Загрузки, Документы) — берём самую свежую непустую."""
-    first = []
-    if running and running.get("path"):
-        first.append(os.path.join(os.path.dirname(running["path"]), "data"))
-    first.append(os.path.join(os.path.dirname(sys.executable), "data"))
-    for d in first:
-        if _db_has_content(os.path.join(d, "putevka_db.json")):
-            return d
+    """v8.3.0: базу берём ТОЛЬКО у работающей прежней версии или рядом с запущенным exe (обновление на месте).
+    Раньше ещё и искали по «Рабочему столу», «Загрузкам», «Документам» — так в «свежую» установку владельца
+    молча попали его тестовые ведомости (17.11). Поиск по папкам убран."""
     cands = []
-    try:
-        with open(DATA_DIR_NOTE, encoding="utf-8") as f:
-            cands.append(f.read().strip())
-    except Exception:
-        pass
-    home = os.path.expanduser("~")
-    roots = [os.path.join(home, x) for x in ("Desktop", "Downloads", "Documents", "OneDrive")]
-    try:
-        desk = _ps("[Environment]::GetFolderPath('Desktop'); [Environment]::GetFolderPath('MyDocuments')", timeout=20)
-        roots += [x.strip() for x in desk.splitlines() if x.strip()]
-    except Exception:
-        pass
-    cands += _find_data_dirs(roots)
-    best, best_t = None, -1
+    if running and running.get("path"):
+        cands.append(os.path.join(os.path.dirname(running["path"]), "data"))
+    cands.append(os.path.join(os.path.dirname(sys.executable), "data"))
     for d in cands:
-        db = os.path.join(d, "putevka_db.json")
-        if _same_path(d, os.path.join(INSTALL_DIR, "data")) or not _db_has_content(db):
-            continue
-        t = os.path.getmtime(db)
-        if t > best_t:
-            best, best_t = d, t
-    return best
+        if not _same_path(d, os.path.join(INSTALL_DIR, "data")) and _db_has_content(os.path.join(d, "putevka_db.json")):
+            return d
+    return None
+
+
+def _ask_migrate(src):
+    """Спросить, переносить ли найденную базу. Без окна (проверки) — по PUTEVKA_MIGRATE=yes/no."""
+    forced = (os.environ.get("PUTEVKA_MIGRATE") or "").strip().lower()
+    if forced in ("yes", "no"):
+        _log("перенос базы — по PUTEVKA_MIGRATE=%s" % forced)
+        return forced == "yes"
+    i = _db_summary(src)
+    text = ("Найдена рабочая база прежней версии программы:\n%s\n\n"
+            "Водителей: %d, пользователей: %d, документов: %d\nПоследнее изменение: %s\n\n"
+            "Перенести эту базу в программу?\n\n"
+            "«Да» — перенести (обычное обновление, всё останется как было).\n"
+            "«Нет» — начать с чистой базы. Найденная база останется на месте; её можно загрузить позже "
+            "(«Документы» → «Резервная копия базы»).") % (src, i["profiles"], i["users"], i["docs"], i["when"])
+    try:
+        import ctypes
+        # MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND | MB_TOPMOST
+        ans = ctypes.windll.user32.MessageBoxW(None, text, "Путёвка — перенос рабочей базы", 0x4 | 0x20 | 0x10000 | 0x40000)
+        _log("перенос базы: ответ %s" % ("да" if ans == 6 else "нет"))
+        return ans == 6
+    except Exception as e:
+        _log("окно вопроса не открылось (%s) — базу НЕ переношу, она остаётся на месте" % e)
+        return False
 
 
 def _copy_data(src, dst):
@@ -423,9 +418,11 @@ def _install_and_handoff():
         inst_db = os.path.join(INSTALL_DIR, "data", "putevka_db.json")
         if not _db_has_content(inst_db):
             src = _pick_data_source(running)
-            if src:
+            if src and _ask_migrate(src):
                 _copy_data(src, os.path.join(INSTALL_DIR, "data"))
                 _log("рабочая база перенесена: %s → %s" % (src, os.path.join(INSTALL_DIR, "data")))
+            elif src:
+                _log("рабочая база НЕ перенесена (ответ «нет»): %s — программа начнёт с чистой базы" % src)
         if replace_installed:
             if not _copy_exe_to(INSTALL_EXE):
                 _log("не удалось записать %s — работаю из текущего места" % INSTALL_EXE)
@@ -443,11 +440,6 @@ def _install_and_handoff():
                 except Exception:
                     pass
         _make_shortcuts(old_targets)
-        try:
-            with open(DATA_DIR_NOTE, "w", encoding="utf-8") as f:
-                f.write(os.path.join(INSTALL_DIR, "data"))
-        except Exception:
-            pass
         _launch(INSTALL_EXE, [a for a in sys.argv[1:] if a == "--after-update"])
         _log("передал запуск установленной программе")
         os._exit(0)

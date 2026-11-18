@@ -1,4 +1,4 @@
-name: Build and Release v8.2.1
+name: Build and Release v8.3.0
 on:
   push:
     branches: [ main ]
@@ -15,7 +15,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Build Verify and Publish v8.2.1
+      - name: Build Verify and Publish v8.3.0
         shell: python
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -25,9 +25,9 @@ jobs:
           subprocess.run([sys.executable, "-m", "pip", "install", "pyinstaller", "python-docx", "openpyxl", "fastapi", "uvicorn", "pydantic"], check=True)
 
           # 1. Проверка версии и сервера
-          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "8.2.1", "version.txt должен содержать 8.2.1"
+          assert pathlib.Path("version.txt").read_text(encoding="utf-8").strip() == "8.3.0", "version.txt должен содержать 8.3.0"
           import server
-          assert server.APP_VERSION == "v8.2.1", "server.APP_VERSION должен быть v8.2.1"
+          assert server.APP_VERSION == "v8.3.0", "server.APP_VERSION должен быть v8.3.0"
 
           # 2. Проверка синтаксиса JavaScript клиента
           h = pathlib.Path("static/index.html").read_text(encoding="utf-8")
@@ -46,6 +46,9 @@ jobs:
           assert "def parse_fines_text" in pathlib.Path("server.py").read_text(encoding="utf-8") and "renderFines" in h, "Нет раздела «Штрафы» (v8.2.0)"
           assert "function fitRefuelWindows" in h and "function preRefuelKm" in h, "Нет проверки заправки в момент чека (v8.2.0)"
           _d = pathlib.Path("desktop_app.py").read_text(encoding="utf-8")
+          _srv = pathlib.Path("server.py").read_text(encoding="utf-8")
+          assert "def password_problem" in _srv and "/api/backup/import" in _srv and "def _mail_send" in _srv and "function backupExport" in h and "function goBack" in h, "Нет резервной копии, восстановления пароля или «Назад» (v8.3.0)"
+          assert "def _ask_migrate" in _d and "_find_data_dirs" not in _d, "Перенос базы при установке — только с вопросом, без поиска по папкам (v8.3.0)"
           assert "def _install_and_handoff" in _d and "--finish-update" in _d and "--finish-update" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Нет установки в одно место и обновления без батника (v8.2.1)"
           assert "CSP_PAGE" in pathlib.Path("server.py").read_text(encoding="utf-8") and "pbkdf2_sha256" in pathlib.Path("server.py").read_text(encoding="utf-8"), "Нет защиты данных (v8.2.0)"
           # v8.2.0: защита от повторения утечки 17.11 — в стартовой базе и шаблоне не должно быть реальных данных
@@ -71,14 +74,14 @@ jobs:
           subprocess.run(["pyinstaller", "--noconfirm", "--clean", "--onefile", "--name", "Putevka", "--icon", "putevka.ico", "--version-file", "file_version_info.txt", "--add-data", "static;static", "--add-data", "data;data", "--add-data", "version.txt;.", "desktop_app.py"], check=True)
 
           # 4. Формирование архивов релиза
-          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v8_2_1.zip", "w", zipfile.ZIP_DEFLATED)
+          z1 = zipfile.ZipFile("putevka_windows_desktop_app_v8_3_0.zip", "w", zipfile.ZIP_DEFLATED)
           for f in ["dist/Putevka.exe", "update.ps1", "update.sh", "version.txt"]:
               if os.path.exists(f):
                   z1.write(f, os.path.basename(f))
           z1.close()
 
           srv_files = ["server.py", "desktop_app.py", "version.txt", "requirements.txt", "Dockerfile", "docker-compose.yml", "setup_and_run.sh", "update_on_server.sh", "update.sh", "update.ps1", "static/index.html", "data/app_data.json", "data/putevka_db.json", "templates_xls/template_0345001.xlsx"]
-          z2 = zipfile.ZipFile("putevka_server_v8_2_1.zip", "w", zipfile.ZIP_DEFLATED)
+          z2 = zipfile.ZipFile("putevka_server_v8_3_0.zip", "w", zipfile.ZIP_DEFLATED)
           for f in srv_files:
               if os.path.exists(f):
                   z2.write(f, f)
@@ -87,5 +90,5 @@ jobs:
           # 5. Архивы и exe — только в релизе (раньше коммитились в репозиторий вместе с build/ и dist/)
 
           # 6. Публикация релиза GitHub
-          subprocess.run(["gh", "release", "delete", "v8.2.1", "--yes", "--cleanup-tag"], check=False)
-          subprocess.run(["gh", "release", "create", "v8.2.1", "dist/Putevka.exe", "putevka_windows_desktop_app_v8_2_1.zip", "putevka_server_v8_2_1.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v8.2.1 — установка со значком на рабочем столе и надёжное обновление Windows-версии", "--notes", "Windows-версия: программа сама ставится в одно место (%LOCALAPPDATA%\\Programs\\Putevka) вместе с рабочей базой и создаёт ярлык «Путёвка» с фирменным значком на рабочем столе и в «Пуске»; старые ярлыки ведут туда же. Обновление закрывает прежнюю версию по номеру процесса (а не по имени файла), новый exe сам встаёт на место старого (без батника), старая версия в фоне больше не перехватывает запуск, после обновления не открывается второе окно. У exe — значок и описание. Переход со старых версий: если кнопка «Обновить» не сработала — один раз скачайте Putevka.exe с этой страницы и запустите (откуда угодно): программа найдёт и перенесёт базу сама.", "--latest"], check=True)
+          subprocess.run(["gh", "release", "delete", "v8.3.0", "--yes", "--cleanup-tag"], check=False)
+          subprocess.run(["gh", "release", "create", "v8.3.0", "dist/Putevka.exe", "putevka_windows_desktop_app_v8_3_0.zip", "putevka_server_v8_3_0.zip", "update.ps1", "update.sh", "setup_and_run.sh", "--title", "АСУ ПУТЁВКА v8.3.0 — резервная копия базы, восстановление пароля, почта, кнопка «Назад»", "--notes", "Резервная копия: вся база одним файлом (Документы → «Резервная копия базы»): выгрузить, загрузить на другом компьютере, начать с чистой базы; копия раз в сутки и перед загрузкой/очисткой. Вход: пароль не короче 8 символов, блокировка подбора по логину, сеанс закрывается после суток без действий, код восстановления администратора, сброс пароля кодом из письма. Почта своего ящика (Яндекс, Mail.ru, Gmail) — коды сброса и напоминания о сроках и штрафах. Кнопка «Назад» и Alt+←. Версия — внизу меню. Установка Windows: база прежней версии переносится только с вашего согласия, поиск по папкам убран.", "--latest"], check=True)
