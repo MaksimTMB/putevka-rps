@@ -12,3 +12,13 @@ releases/
 putevka_server_v*.zip
 putevka_windows_desktop_app_v*.zip
 file_version_info.txt
+
+# Рабочие файлы программы — в git не попадают (пароль почты, токен бота, сеансы, журнал входов, копии, документы)
+data/smtp.json
+data/notify.json
+data/security.json
+data/security.log*
+data/sessions.json
+data/backups/
+data/documents/
+data/*.backup.json
