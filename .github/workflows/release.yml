@@ -84,16 +84,7 @@ jobs:
                   z2.write(f, f)
           z2.close()
 
-          os.makedirs("releases", exist_ok=True)
-          shutil.copy2("putevka_server_v8_2_1.zip", "releases/putevka_server_v8_2_1.zip")
-          shutil.copy2("putevka_windows_desktop_app_v8_2_1.zip", "releases/putevka_windows_desktop_app_v8_2_1.zip")
-
-          # 5. Синхронизация собранных пакетов обратно в репозиторий
-          subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
-          subprocess.run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"], check=True)
-          subprocess.run(["git", "add", "-A"], check=True)
-          subprocess.run(["git", "commit", "-m", "Sync v8.2.1 release packages [skip ci]"], check=False)
-          subprocess.run(["git", "push", "origin", "HEAD:main"], check=False)
+          # 5. Архивы и exe — только в релизе (раньше коммитились в репозиторий вместе с build/ и dist/)
 
           # 6. Публикация релиза GitHub
           subprocess.run(["gh", "release", "delete", "v8.2.1", "--yes", "--cleanup-tag"], check=False)

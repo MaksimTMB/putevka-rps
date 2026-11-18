@@ -4,3 +4,11 @@ venv/
 .venv/
 server.log
 .DS_Store
+
+# Сборка Windows и архивы релиза — только на странице Releases, не в файлах репозитория
+build/
+dist/
+releases/
+putevka_server_v*.zip
+putevka_windows_desktop_app_v*.zip
+file_version_info.txt
